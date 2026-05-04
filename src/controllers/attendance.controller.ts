@@ -57,13 +57,22 @@ export const punchToggle = async (req: AuthRequest, res: Response) => {
 
         if (!record) {
             // Punch In
+            // Simple Late Mark Logic: After 09:30 AM is late
+            let status = 'Present';
+            const punchInHour = now.getHours();
+            const punchInMinute = now.getMinutes();
+            // 9:30 AM threshold
+            if (punchInHour > 9 || (punchInHour === 9 && punchInMinute > 30)) {
+                status = 'Late';
+            }
+
             record = await prisma.attendanceRecord.create({
                 data: {
                     userId,
                     tenantId,
                     date: today,
                     inTime: now,
-                    status: 'Present' // Default status
+                    status
                 }
             });
             return res.json({ message: 'Punched in successfully', record });
@@ -90,7 +99,15 @@ export const punchToggle = async (req: AuthRequest, res: Response) => {
 
 export const getAttendanceHistory = async (req: AuthRequest, res: Response) => {
     try {
-        const userId = req.user.id;
+        const loggedInUser = req.user;
+        const employeeIdQuery = req.query.employeeId ? Number(req.query.employeeId) : null;
+        
+        // Security: Only HR_ADMIN can view other employees' attendance
+        let userId = loggedInUser.id;
+        if (employeeIdQuery && loggedInUser.role === 'HR_ADMIN') {
+            userId = employeeIdQuery;
+        }
+
         const now = new Date();
         const year = req.query.year || now.getFullYear().toString();
         const month = req.query.month || (now.getMonth() + 1).toString();
@@ -117,7 +134,15 @@ export const getAttendanceHistory = async (req: AuthRequest, res: Response) => {
 
 export const getAttendanceStats = async (req: AuthRequest, res: Response) => {
     try {
-        const userId = req.user.id;
+        const loggedInUser = req.user;
+        const employeeIdQuery = req.query.employeeId ? Number(req.query.employeeId) : null;
+        
+        // Security: Only HR_ADMIN can view other employees' attendance
+        let userId = loggedInUser.id;
+        if (employeeIdQuery && loggedInUser.role?.name === 'HR_ADMIN') {
+            userId = employeeIdQuery;
+        }
+
         const now = new Date();
         const year = req.query.year || now.getFullYear().toString();
         const month = req.query.month || (now.getMonth() + 1).toString();
@@ -134,7 +159,7 @@ export const getAttendanceStats = async (req: AuthRequest, res: Response) => {
         });
 
         const stats = {
-            present: records.filter(r => r.status === 'Present').length,
+            present: records.filter(r => r.status === 'Present' || r.status === 'Late').length,
             absent: records.filter(r => r.status === 'Absent').length,
             late: records.filter(r => r.status === 'Late').length,
             halfDay: records.filter(r => r.status === 'Half Day').length,

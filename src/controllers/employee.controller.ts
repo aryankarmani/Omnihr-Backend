@@ -162,8 +162,10 @@ export const updateEmployee = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
         const {
-            // Personal
-            phone, dob, bloodGroup, address, location, department, title,
+            // User model
+            name, email,
+            // Profile model
+            phone, dob, bloodGroup, address, location, department, title, status,
             // Statutory
             uan, pfNumber, esic, pan, aadhaar,
             // Bank
@@ -179,7 +181,7 @@ export const updateEmployee = async (req: Request, res: Response) => {
             create: {
                 userId: Number(id),
                 tenantId,
-                title, department, location, phone, dob: dob ? new Date(dob) : undefined, bloodGroup, address,
+                title, department, location, phone, status, dob: dob ? new Date(dob) : undefined, bloodGroup, address,
                 statutory: {
                     create: { uan, pfNumber, esic, pan, aadhaar }
                 },
@@ -188,7 +190,7 @@ export const updateEmployee = async (req: Request, res: Response) => {
                 }
             },
             update: {
-                title, department, location, phone, dob: dob ? new Date(dob) : undefined, bloodGroup, address,
+                title, department, location, phone, status, dob: dob ? new Date(dob) : undefined, bloodGroup, address,
                 statutory: {
                     upsert: {
                         create: { uan, pfNumber, esic, pan, aadhaar },
@@ -207,6 +209,17 @@ export const updateEmployee = async (req: Request, res: Response) => {
                 bank: true
             }
         });
+
+        // Update User Model if name or email changed
+        if (name || email) {
+            await prisma.user.update({
+                where: { id: Number(id) },
+                data: {
+                    ...(name && { name }),
+                    ...(email && { email })
+                }
+            });
+        }
 
         res.json(updatedProfile);
     } catch (error) {
@@ -241,6 +254,61 @@ export const addDocument = async (req: Request, res: Response) => {
     }
 };
 
+// Delete Employee
+export const deleteEmployee = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const tenantId = (req as any).user?.tenantId;
+ 
+        if (!tenantId) return res.status(401).json({ message: 'Unauthorized' });
+ 
+        // Use transaction to ensure everything is deleted
+        await prisma.$transaction(async (tx) => {
+            // 0. Handle subordinates (nullify their managerId)
+            await tx.user.updateMany({
+                where: { managerId: Number(id) },
+                data: { managerId: null }
+            });
+
+            // 1. Delete dependent records (Bank, Statutory, Documents, Salary)
+            const profile = await tx.employeeProfile.findUnique({ where: { userId: Number(id) } });
+            
+            if (profile) {
+                await tx.bankDetails.deleteMany({ where: { profileId: profile.id } });
+                await tx.statutoryDetails.deleteMany({ where: { profileId: profile.id } });
+                await tx.document.deleteMany({ where: { profileId: profile.id } });
+                await tx.salaryStructure.deleteMany({ where: { profileId: profile.id } });
+                
+                // 2. Delete Employee Profile
+                await tx.employeeProfile.delete({ where: { id: profile.id } });
+            }
+ 
+            // 3. Delete Attendance Records
+            await tx.attendanceRecord.deleteMany({ where: { userId: Number(id) } });
+ 
+            // 4. Delete Leaves
+            await tx.leave.deleteMany({ where: { userId: Number(id) } });
+ 
+            // 5. Delete Tax/Investment Data
+            await tx.taxRegimeSelection.deleteMany({ where: { userId: Number(id) } });
+            await tx.investmentDeclaration.deleteMany({ where: { userId: Number(id) } });
+ 
+            // 6. Delete User
+            await tx.user.delete({
+                where: {
+                    id: Number(id),
+                    tenantId
+                }
+            });
+        });
+ 
+        res.json({ message: 'Employee and all associated records deleted successfully' });
+    } catch (error) {
+        console.error('Delete error:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+};
+ 
 // Delete Document
 export const deleteDocument = async (req: Request, res: Response) => {
     try {

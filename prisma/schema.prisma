@@ -116,6 +116,14 @@ model User {
   @@unique([email, tenantId])
 }
 
+model Otp {
+  id        Int      @id @default(autoincrement())
+  email     String
+  code      String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
 model Leave {
   id        Int      @id @default(autoincrement())
   
