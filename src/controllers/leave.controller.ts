@@ -13,8 +13,14 @@ export const getLeaveBalances = async (req: Request, res: Response) => {
 
         // Fetch all leave types for the tenant
         const leaveTypes = await prisma.leaveType.findMany({
-            where: { tenantId }
-        });
+  where: {
+    tenantId,
+    code: {
+      in: ['CL', 'SL', 'EL']
+    }
+  },
+  distinct: ['code']
+});
 
         // Fetch approved leaves for the user to calculate taken days (FOR CURRENT YEAR ONLY)
         const currentYear = new Date().getFullYear();
