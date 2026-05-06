@@ -68,6 +68,7 @@ model Tenant {
   // Payroll & Tax
   taxRegimeSelections TaxRegimeSelection[]
   investmentDeclarations InvestmentDeclaration[]
+  teams Team[]
 }
 
 model Role {
@@ -97,6 +98,10 @@ model User {
   roleId      Int?
   role        Role?    @relation(fields: [roleId], references: [id])
   
+  // Teams
+  teamsManaged Team[] @relation("TeamManager")
+  teamMembers  TeamMember[]
+
   // Hierarchy
   managerId   Int?
   manager     User?    @relation("ManagerSubordinates", fields: [managerId], references: [id])
@@ -142,6 +147,37 @@ model Leave {
   tenant    Tenant   @relation(fields: [tenantId], references: [id])
   
   createdAt DateTime @default(now())
+}
+
+
+
+model Team {
+  id          Int      @id @default(autoincrement())
+  name        String
+  description String?
+
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+
+  managerId   Int?
+  manager     User?    @relation("TeamManager", fields: [managerId], references: [id])
+
+  members     TeamMember[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model TeamMember {
+  id        Int   @id @default(autoincrement())
+
+  teamId    Int
+  team      Team  @relation(fields: [teamId], references: [id])
+
+  userId    Int
+  user      User  @relation(fields: [userId], references: [id])
+
+  @@unique([teamId, userId])
 }
 
 
