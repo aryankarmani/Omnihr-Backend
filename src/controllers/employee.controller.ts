@@ -269,7 +269,7 @@ export const deleteEmployee = async (req: Request, res: Response) => {
                 where: { managerId: Number(id) },
                 data: { managerId: null }
             });
-
+ 
             // 1. Delete dependent records (Bank, Statutory, Documents, Salary)
             const profile = await tx.employeeProfile.findUnique({ where: { userId: Number(id) } });
             
@@ -282,17 +282,17 @@ export const deleteEmployee = async (req: Request, res: Response) => {
                 // 2. Delete Employee Profile
                 await tx.employeeProfile.delete({ where: { id: profile.id } });
             }
- 
+  
             // 3. Delete Attendance Records
             await tx.attendanceRecord.deleteMany({ where: { userId: Number(id) } });
- 
+  
             // 4. Delete Leaves
             await tx.leave.deleteMany({ where: { userId: Number(id) } });
- 
+  
             // 5. Delete Tax/Investment Data
             await tx.taxRegimeSelection.deleteMany({ where: { userId: Number(id) } });
             await tx.investmentDeclaration.deleteMany({ where: { userId: Number(id) } });
- 
+  
             // 6. Delete User
             await tx.user.delete({
                 where: {
@@ -301,14 +301,14 @@ export const deleteEmployee = async (req: Request, res: Response) => {
                 }
             });
         });
- 
+  
         res.json({ message: 'Employee and all associated records deleted successfully' });
     } catch (error) {
         console.error('Delete error:', error);
         res.status(500).json({ message: 'Server error' });
     }
 };
- 
+  
 // Delete Document
 export const deleteDocument = async (req: Request, res: Response) => {
     try {
