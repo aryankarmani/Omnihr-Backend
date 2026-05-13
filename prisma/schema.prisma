@@ -16,103 +16,108 @@ datasource db {
 // Global Masters (Shared across tenants)
 
 model State {
-  id        Int      @id @default(autoincrement())
-  name      String   @unique
-  code      String?  // e.g. MH, DL
-  country   String   @default("India")
-  cities    City[]
+  id                   Int                   @id @default(autoincrement())
+  name                 String                @unique
+  code                 String? // e.g. MH, DL
+  country              String                @default("India")
+  cities               City[]
   professionalTaxSlabs ProfessionalTaxSlab[]
   holidays             Holiday[]
 }
 
 model City {
-  id        Int      @id @default(autoincrement())
-  name      String
-  stateId   Int
-  state     State    @relation(fields: [stateId], references: [id])
-  
+  id      Int    @id @default(autoincrement())
+  name    String
+  stateId Int
+  state   State  @relation(fields: [stateId], references: [id])
+
   @@unique([name, stateId])
 }
 
 // SaaS & RBAC Schema
 
 model Tenant {
-  id          String   @id @default(uuid())
-  name        String
-  domain      String   @unique // e.g., "client-a" for client-a.hrms.com
-  logo        String?
-  plan        String   @default("FREE")
-  createdAt   DateTime @default(now())
-  
-  users            User[]
-  roles            Role[]
-  leaves           Leave[]
-  employeeProfiles EmployeeProfile[]
+  id        String   @id @default(uuid())
+  name      String
+  domain    String   @unique // e.g., "client-a" for client-a.hrms.com
+  logo      String?
+  plan      String   @default("FREE")
+  createdAt DateTime @default(now())
+
+  users             User[]
+  roles             Role[]
+  leaves            Leave[]
+  employeeProfiles  EmployeeProfile[]
   attendanceRecords AttendanceRecord[]
-  
+
   // Masters Relations
-  companies        Company[]
-  locations        Location[]
-  departments      Department[]
-  designations     Designation[]
-  salaryComponents SalaryComponent[]
+  companies            Company[]
+  locations            Location[]
+  departments          Department[]
+  designations         Designation[]
+  salaryComponents     SalaryComponent[]
   professionalTaxSlabs ProfessionalTaxSlab[]
-  statutorySettings StatutorySettings?
-  bankMasters      BankMaster[]
-  shifts           Shift[]
-  holidays         Holiday[]
-  leaveTypes       LeaveType[]
-  attendancePolicy AttendancePolicy?
-  approvalWorkflows ApprovalWorkflow[]
-  
+  statutorySettings    StatutorySettings?
+  bankMasters          BankMaster[]
+  shifts               Shift[]
+  holidays             Holiday[]
+  leaveTypes           LeaveType[]
+  attendancePolicy     AttendancePolicy?
+  approvalWorkflows    ApprovalWorkflow[]
+
   // Payroll & Tax
-  taxRegimeSelections TaxRegimeSelection[]
+  taxRegimeSelections    TaxRegimeSelection[]
   investmentDeclarations InvestmentDeclaration[]
+  teams                  Team[]
 }
 
 model Role {
-  id          Int      @id @default(autoincrement())
+  id          Int          @id @default(autoincrement())
   name        String
   permissions Permission[]
-  
+
   // Module Access (Comma-separated string for SQLite: "HR,ATTENDANCE,PAYROLL")
   accessibleModules String @default("")
 
-  tenantId    String
-  tenant      Tenant   @relation(fields: [tenantId], references: [id])
-  users       User[]
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+  users    User[]
 
   @@unique([name, tenantId])
 }
 
 model User {
-  id          Int      @id @default(autoincrement())
-  email       String
-  password    String?  // For auth
-  name        String
-  
+  id       Int     @id @default(autoincrement())
+  email    String
+  password String? // For auth
+  name     String
+
   // RBAC & SaaS
-  tenantId    String
-  tenant      Tenant   @relation(fields: [tenantId], references: [id])
-  roleId      Int?
-  role        Role?    @relation(fields: [roleId], references: [id])
-  
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+  roleId   Int?
+  role     Role?  @relation(fields: [roleId], references: [id])
+
+  // Teams
+  teamsManaged Team[]       @relation("TeamManager")
+  teamMembers  TeamMember[]
+
   // Hierarchy
-  managerId   Int?
-  manager     User?    @relation("ManagerSubordinates", fields: [managerId], references: [id])
-  subordinates User[]  @relation("ManagerSubordinates")
+  managerId    Int?
+  manager      User?  @relation("ManagerSubordinates", fields: [managerId], references: [id])
+  subordinates User[] @relation("ManagerSubordinates")
 
   // Data
-  leaves      Leave[]
-  employeeProfile EmployeeProfile?
+  leaves            Leave[]
+  employeeProfile   EmployeeProfile?
   attendanceRecords AttendanceRecord[]
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
-  taxRegimeSelections TaxRegimeSelection[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  taxRegimeSelections    TaxRegimeSelection[]
   investmentDeclarations InvestmentDeclaration[]
-  
+
   @@unique([email, tenantId])
 }
 
@@ -125,103 +130,142 @@ model Otp {
 }
 
 model Leave {
-  id        Int      @id @default(autoincrement())
-  
+  id Int @id @default(autoincrement())
+
   leaveTypeId String
   leaveType   LeaveType @relation(fields: [leaveTypeId], references: [id])
-  
+
   reason    String
   startDate DateTime
   endDate   DateTime
   status    String   @default("PENDING")
-  
+
   // Relations
-  userId    Int
-  user      User     @relation(fields: [userId], references: [id])
-  tenantId  String
-  tenant    Tenant   @relation(fields: [tenantId], references: [id])
-  
+  userId   Int
+  user     User   @relation(fields: [userId], references: [id])
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+
   createdAt DateTime @default(now())
 }
 
+model Team {
+  id          Int     @id @default(autoincrement())
+  name        String
+  description String?
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+
+  managerId Int?
+  manager   User? @relation("TeamManager", fields: [managerId], references: [id])
+
+  members TeamMember[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model TeamMember {
+  id Int @id @default(autoincrement())
+
+  teamId Int
+  team   Team @relation(fields: [teamId], references: [id])
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id])
+
+  @@unique([teamId, userId])
+}
 
 // -- Employee Management Schema --
 
 model EmployeeProfile {
-  id            Int       @id @default(autoincrement())
-  userId        Int       @unique
-  user          User      @relation(fields: [userId], references: [id])
-  
+  id     Int  @id @default(autoincrement())
+  userId Int  @unique
+  user   User @relation(fields: [userId], references: [id])
+
   // Personal Info
-  title         String?
-  department    String?
-  location      String?
-  phone         String?
-  dob           DateTime?
-  joiningDate   DateTime?
-  bloodGroup    String?
-  address       String?
-  avatar        String?   // URL or color code
-  status        String    @default("Active") // Active, Inactive, OnNotice
+  title      String?
+  department String?
+  location   String?
+
+  departmentId  String?
+  designationId String?
+  locationId    String?
+  shiftId       String?
+
+  departmentRef  Department?  @relation(fields: [departmentId], references: [id])
+  designationRef Designation? @relation(fields: [designationId], references: [id])
+  locationRef    Location?    @relation(fields: [locationId], references: [id])
+  shiftRef       Shift?       @relation(fields: [shiftId], references: [id])
+
+  phone       String?
+  dob         DateTime?
+  joiningDate DateTime?
+  bloodGroup  String?
+  address     String?
+  avatar      String? // URL or color code
+  status      String    @default("Active") // Active, Inactive, OnNotice
 
   // Relations
-  statutory     StatutoryDetails?
-  bank          BankDetails?
-  documents     Document[]
-  salary        SalaryStructure?
-  
-  tenantId      String
-  tenant        Tenant    @relation(fields: [tenantId], references: [id])
+  statutory StatutoryDetails?
+  bank      BankDetails?
+  documents Document[]
+  salary    SalaryStructure?
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
 }
 
 model StatutoryDetails {
-  id            Int             @id @default(autoincrement())
-  profileId     Int             @unique
-  profile       EmployeeProfile @relation(fields: [profileId], references: [id])
-  
-  uan           String?
-  pfNumber      String?
-  esic          String?
-  pan           String?
-  aadhaar       String?
+  id        Int             @id @default(autoincrement())
+  profileId Int             @unique
+  profile   EmployeeProfile @relation(fields: [profileId], references: [id])
+
+  uan      String?
+  pfNumber String?
+  esic     String?
+  pan      String?
+  aadhaar  String?
 }
 
 model BankDetails {
-  id            Int             @id @default(autoincrement())
-  profileId     Int             @unique
-  profile       EmployeeProfile @relation(fields: [profileId], references: [id])
-  
+  id        Int             @id @default(autoincrement())
+  profileId Int             @unique
+  profile   EmployeeProfile @relation(fields: [profileId], references: [id])
+
   bankName      String
   accountNumber String
   ifsc          String
 }
 
 model Document {
-  id            Int             @id @default(autoincrement())
-  profileId     Int
-  profile       EmployeeProfile @relation(fields: [profileId], references: [id])
-  
-  name          String
-  url           String
-  type          String?
-  uploadedAt    DateTime        @default(now())
+  id        Int             @id @default(autoincrement())
+  profileId Int
+  profile   EmployeeProfile @relation(fields: [profileId], references: [id])
+
+  name       String
+  url        String
+  type       String?
+  uploadedAt DateTime @default(now())
 }
 
 model SalaryStructure {
-  id            Int             @id @default(autoincrement())
-  profileId     Int             @unique
-  profile       EmployeeProfile @relation(fields: [profileId], references: [id])
-  
+  id        Int             @id @default(autoincrement())
+  profileId Int             @unique
+  profile   EmployeeProfile @relation(fields: [profileId], references: [id])
+
   // Earnings
-  basic         Float           @default(0)
-  hra           Float           @default(0)
-  special       Float           @default(0)
-  medical       Float           @default(0)
-  
+  basic   Float @default(0)
+  hra     Float @default(0)
+  special Float @default(0)
+  medical Float @default(0)
+
   // Deductions
-  pf            Float           @default(0)
-  pt            Float           @default(0)
-  tax           Float           @default(0) // TDS
+  pf  Float @default(0)
+  pt  Float @default(0)
+  tax Float @default(0) // TDS
 }
 
 // -- Masters Schema --
@@ -229,76 +273,82 @@ model SalaryStructure {
 // 1. Core Organizational Masters
 
 model Company {
-  id              String   @id @default(uuid())
-  tenantId        String
-  tenant          Tenant   @relation(fields: [tenantId], references: [id])
-  
-  legalName       String
-  cin             String?
-  pan             String?  // [NEW]
-  tan             String?  // [NEW]
-  gstin           String?
-  regAddress      String?
-  website         String?
-  logo            String?
-  primaryColor    String?  // [NEW] SaaS Branding
-  secondaryColor  String?  // [NEW] SaaS Branding
-  
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  
-  locations       Location[]
-  departments     Department[]
-  designations    Designation[]
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+
+  legalName      String
+  cin            String?
+  pan            String? // [NEW]
+  tan            String? // [NEW]
+  gstin          String?
+  regAddress     String?
+  website        String?
+  logo           String?
+  primaryColor   String? // [NEW] SaaS Branding
+  secondaryColor String? // [NEW] SaaS Branding
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  locations    Location[]
+  departments  Department[]
+  designations Designation[]
 }
 
 model Location {
-  id              String   @id @default(uuid())
-  companyId       String
-  company         Company  @relation(fields: [companyId], references: [id])
-  tenantId        String
-  tenant          Tenant   @relation(fields: [tenantId], references: [id])
-  
-  name            String
-  address         String
-  city            String
-  state           String   // Crucial for PT/LWF
-  country         String
-  pincode         String
-  
-  shopEstLicense  String?  // [NEW] Shop & Establishment License
-  ptState         String?  // Link to PT Slab
-  
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+  tenantId  String
+  tenant    Tenant  @relation(fields: [tenantId], references: [id])
+
+  name    String
+  address String
+  city    String
+  state   String // Crucial for PT/LWF
+  country String
+  pincode String
+
+  shopEstLicense String? // [NEW] Shop & Establishment License
+  ptState        String? // Link to PT Slab
+
+  employees EmployeeProfile[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Department {
-  id              String   @id @default(uuid())
-  companyId       String
-  company         Company  @relation(fields: [companyId], references: [id])
-  tenantId        String
-  tenant          Tenant   @relation(fields: [tenantId], references: [id])
-  
-  name            String   // e.g., "IT", "HR"
-  headId          Int?     // HOD
-  
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+  tenantId  String
+  tenant    Tenant  @relation(fields: [tenantId], references: [id])
+
+  name   String // e.g., "IT", "HR"
+  headId Int? // HOD
+
+  employees EmployeeProfile[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Designation {
-  id              String   @id @default(uuid())
-  companyId       String
-  company         Company  @relation(fields: [companyId], references: [id])
-  tenantId        String
-  tenant          Tenant   @relation(fields: [tenantId], references: [id])
-  
-  title           String   // e.g., "Senior Developer"
-  grade           String?  // Pay grade
-  
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+  tenantId  String
+  tenant    Tenant  @relation(fields: [tenantId], references: [id])
+
+  title String // e.g., "Senior Developer"
+  grade String? // Pay grade
+
+  employees EmployeeProfile[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // 2. Statutory & Payroll Masters
@@ -306,118 +356,119 @@ model Designation {
 // Enums removed for SQLite compatibility (String used instead)
 
 model StatutorySettings {
-  id              String   @id @default(uuid())
-  tenantId        String   @unique
-  tenant          Tenant   @relation(fields: [tenantId], references: [id])
-  
+  id       String @id @default(uuid())
+  tenantId String @unique
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+
   // EPF
-  epfEnabled      Boolean  @default(true)
-  epfNumber       String?
-  epfWageCeiling  Boolean  @default(true)
-  pfCeilingType   String   @default("STATUTORY_15K") // Enum: STATUTORY_15K, ACTUAL_BASIC
-  
+  epfEnabled     Boolean @default(true)
+  epfNumber      String?
+  epfWageCeiling Boolean @default(true)
+  pfCeilingType  String  @default("STATUTORY_15K") // Enum: STATUTORY_15K, ACTUAL_BASIC
+
   // Rates Breakdown
-  epfEmployeeRate Float    @default(12.0)
-  epfEmployerRate Float    @default(3.67) // 12 - 8.33
-  epsEmployerRate Float    @default(8.33)
-  edliEmployerRate Float   @default(0.50)
-  adminChargesRate Float   @default(0.50)
-  
+  epfEmployeeRate  Float @default(12.0)
+  epfEmployerRate  Float @default(3.67) // 12 - 8.33
+  epsEmployerRate  Float @default(8.33)
+  edliEmployerRate Float @default(0.50)
+  adminChargesRate Float @default(0.50)
+
   // ESIC
-  esicEnabled     Boolean  @default(true)
-  esicNumber      String?
-  esicWageLimit   Float    @default(21000)
+  esicEnabled      Boolean @default(true)
+  esicNumber       String?
+  esicWageLimit    Float   @default(21000)
   esicEmployeeRate Float   @default(0.75)
   esicEmployerRate Float   @default(3.25)
-  
-  updatedAt       DateTime @updatedAt
+
+  updatedAt DateTime @updatedAt
 }
 
 model SalaryComponent {
-  id              String   @id @default(uuid())
-  tenantId        String
-  tenant          Tenant   @relation(fields: [tenantId], references: [id])
-  
-  name            String
-  type            String   // EARNING, DEDUCTION, REIMBURSEMENT
-  
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+
+  name String
+  type String // EARNING, DEDUCTION, REIMBURSEMENT
+
   // Compliance
-  taxability      String     @default("TAXABLE") // Enum: TAXABLE, PARTIAL, FULLY_EXEMPT
-  isTaxable       Boolean    @default(true) 
-  
+  taxability String  @default("TAXABLE") // Enum: TAXABLE, PARTIAL, FULLY_EXEMPT
+  isTaxable  Boolean @default(true)
+
   isWageCodeComponent Boolean @default(false)
-  isPartOfWages   Boolean  @default(false)    
-  
-  isFBP           Boolean  @default(false)
-  prorationMethod String      @default("CALENDAR_DAYS") // Enum: CALENDAR_DAYS, FIXED_30, WORKING_DAYS
-  
+  isPartOfWages       Boolean @default(false)
+
+  isFBP           Boolean @default(false)
+  prorationMethod String  @default("CALENDAR_DAYS") // Enum: CALENDAR_DAYS, FIXED_30, WORKING_DAYS
+
   // Calculation
-  calculationType String   @default("FLAT") // FLAT, %_BASIC
-  value           Float?   // Fixed amt or %
-  
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  calculationType String @default("FLAT") // FLAT, %_BASIC
+  value           Float? // Fixed amt or %
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model TaxRegimeSelection {
-  id            String   @id @default(uuid())
-  tenantId      String
-  tenant        Tenant   @relation(fields: [tenantId], references: [id])
-  userId        Int
-  user          User     @relation(fields: [userId], references: [id])
-  
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+  userId   Int
+  user     User   @relation(fields: [userId], references: [id])
+
   financialYear String // e.g., "2024-2025"
-  regime        String   // "OLD", "NEW"
-  
-  createdAt     DateTime @default(now())
+  regime        String // "OLD", "NEW"
+
+  createdAt DateTime @default(now())
+
   @@unique([userId, financialYear])
 }
 
 model InvestmentDeclaration {
-  id            String   @id @default(uuid())
-  tenantId      String
-  tenant        Tenant   @relation(fields: [tenantId], references: [id])
-  userId        Int
-  user          User     @relation(fields: [userId], references: [id])
-  
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+  userId   Int
+  user     User   @relation(fields: [userId], references: [id])
+
   financialYear String
-  section       String   // "80C", "80D", "HRA"
+  section       String // "80C", "80D", "HRA"
   amount        Float
   proofUrl      String?
-  status        String   @default("PENDING") // PENDING, APPROVED, REJECTED
-  
-  createdAt     DateTime @default(now())
+  status        String  @default("PENDING") // PENDING, APPROVED, REJECTED
+
+  createdAt DateTime @default(now())
 }
 
 model ProfessionalTaxSlab {
-  id              String   @id @default(uuid())
-  tenantId        String
-  tenant          Tenant   @relation(fields: [tenantId], references: [id])
-  
-  stateId         Int
-  state           State    @relation(fields: [stateId], references: [id])
-  
-  gender          String   @default("ALL")
-  minSalary       Float
-  maxSalary       Float?
-  taxAmount       Float
-  
-  updatedAt       DateTime @updatedAt
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+
+  stateId Int
+  state   State @relation(fields: [stateId], references: [id])
+
+  gender    String @default("ALL")
+  minSalary Float
+  maxSalary Float?
+  taxAmount Float
+
+  updatedAt DateTime @updatedAt
 }
 
 model BankMaster {
-  id              String   @id @default(uuid())
-  tenantId        String
-  tenant          Tenant   @relation(fields: [tenantId], references: [id])
-  
-  bankName        String
-  accountNumber   String
-  ifsc            String
-  branch          String?
-  corporateId     String?
-  
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+
+  bankName      String
+  accountNumber String
+  ifsc          String
+  branch        String?
+  corporateId   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // 3. Attendance & Leave Masters
@@ -425,137 +476,139 @@ model BankMaster {
 // 3. Attendance & Leave Masters
 
 model Shift {
-  id              String   @id @default(uuid())
-  tenantId        String
-  tenant          Tenant   @relation(fields: [tenantId], references: [id])
-  
-  name            String
-  startTime       String   // HH:mm
-  endTime         String   // HH:mm
-  breakDuration   Int      // Minutes
-  graceTime       Int      @default(15)     // Grace period in minutes
-  
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+
+  name          String
+  startTime     String // HH:mm
+  endTime       String // HH:mm
+  breakDuration Int // Minutes
+  graceTime     Int    @default(15) // Grace period in minutes
+
   // Night Shift Logic
-  isNightShift    Boolean  @default(false)  // If true, logic handles midnight crossing
-  
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  isNightShift Boolean @default(false) // If true, logic handles midnight crossing
+
+  employees EmployeeProfile[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model AttendancePolicy {
-  id              String   @id @default(uuid())
-  tenantId        String   @unique
-  tenant          Tenant   @relation(fields: [tenantId], references: [id])
-  
+  id       String @id @default(uuid())
+  tenantId String @unique
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+
   // Hours & Thresholds
-  minHalfDayHours Float    @default(4.0)
-  minFullDayHours Float    @default(8.0)
-  
+  minHalfDayHours Float @default(4.0)
+  minFullDayHours Float @default(8.0)
+
   // Late Mark Logic
-  lateMarkThreshold Int    @default(3)      // 3 late marks = deduction
+  lateMarkThreshold Int    @default(3) // 3 late marks = deduction
   lateMarkDeduction String @default("HALF_DAY") // HALF_DAY, ONE_DAY
-  
+
   // Overtime
-  otEnabled       Boolean  @default(true)
-  otStartAfterShift Boolean @default(true)  // OT starts immediately after shift end?
-  otRate          Float    @default(2.0)    // 2x usually
-  
+  otEnabled         Boolean @default(true)
+  otStartAfterShift Boolean @default(true) // OT starts immediately after shift end?
+  otRate            Float   @default(2.0) // 2x usually
+
   // Workflow
-  regularizationDays Int   @default(3)      // Look-back period
-  lockDate        Int?     // Date of month to lock attendance (e.g., 25)
-  
+  regularizationDays Int  @default(3) // Look-back period
+  lockDate           Int? // Date of month to lock attendance (e.g., 25)
+
   // Comp-Off
-  compOffExpiryDays Int    @default(60)
-  
-  updatedAt       DateTime @updatedAt
+  compOffExpiryDays Int @default(60)
+
+  updatedAt DateTime @updatedAt
 }
 
 model Holiday {
-  id              String   @id @default(uuid())
-  tenantId        String
-  tenant          Tenant   @relation(fields: [tenantId], references: [id])
-  
-  name            String
-  date            DateTime
-  type            String   // NATIONAL, FESTIVAL, OPTIONAL
-  isOptional      Boolean  @default(false)
-  
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+
+  name       String
+  date       DateTime
+  type       String // NATIONAL, FESTIVAL, OPTIONAL
+  isOptional Boolean  @default(false)
+
   // Region-Specific
-  stateId         Int?
-  state           State?   @relation(fields: [stateId], references: [id]) 
-  
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  stateId Int?
+  state   State? @relation(fields: [stateId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model LeaveType {
-  id              String   @id @default(uuid())
-  tenantId        String
-  tenant          Tenant   @relation(fields: [tenantId], references: [id])
-  
-  name            String   // EL, CL, SL
-  code            String   // Unique code
-  description     String?
-  
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+
+  name        String // EL, CL, SL
+  code        String // Unique code
+  description String?
+
   // Entitlement & Accrual
-  daysPerYear     Float
-  accrualFrequency String  @default("YEARLY") // MONTHLY, YEARLY, PRO_RATA
-  
+  daysPerYear      Float
+  accrualFrequency String @default("YEARLY") // MONTHLY, YEARLY, PRO_RATA
+
   // Restrictions
-  carryForward    Boolean  @default(false)
-  maxCarryForward Float?   // Max days to carry forward
-  encashable      Boolean  @default(false)
+  carryForward      Boolean @default(false)
+  maxCarryForward   Float? // Max days to carry forward
+  encashable        Boolean @default(false)
   encashmentFormula String? // "BASIC_DIV_26"
-  
+
   // Rules
-  isMaternity     Boolean  @default(false)
-  sandwichRule    Boolean  @default(false)
-  noticePeriodDays Int     @default(0)      // Prior notice required
+  isMaternity             Boolean @default(false)
+  sandwichRule            Boolean @default(false)
+  noticePeriodDays        Int     @default(0) // Prior notice required
   allowDuringNoticePeriod Boolean @default(true)
-  
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  
-  leaves          Leave[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  leaves Leave[]
 }
 
 // 4. Access Control Masters
 
 model Permission {
-  id          String   @id @default(uuid())
-  name        String   // e.g., "View Employees"
-  code        String   @unique // e.g., "EMPLOYEE_VIEW"
-  module      String   // e.g., "HR"
+  id          String  @id @default(uuid())
+  name        String // e.g., "View Employees"
+  code        String  @unique // e.g., "EMPLOYEE_VIEW"
+  module      String // e.g., "HR"
   description String?
-  
-  roles       Role[]
+
+  roles Role[]
 }
 
 model ApprovalWorkflow {
-  id              String   @id @default(uuid())
-  tenantId        String
-  tenant          Tenant   @relation(fields: [tenantId], references: [id])
-  
-  module          String   // Leave, Expense
-  levels          Int      // Number of approval levels
-  approvers       String   // JSON: mapping levels to Role IDs
-  
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+
+  module    String // Leave, Expense
+  levels    Int // Number of approval levels
+  approvers String // JSON: mapping levels to Role IDs
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model AttendanceRecord {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  user      User     @relation(fields: [userId], references: [id])
-  tenantId  String
-  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  id       Int    @id @default(autoincrement())
+  userId   Int
+  user     User   @relation(fields: [userId], references: [id])
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
 
-  date      String   // YYYY-MM-DD
-  inTime    DateTime?
-  outTime   DateTime?
-  status    String   // Present, Absent, Late, Half Day, Weekend, Holiday
-  hours     Float?
-  
+  date    String // YYYY-MM-DD
+  inTime  DateTime?
+  outTime DateTime?
+  status  String // Present, Absent, Late, Half Day, Weekend, Holiday
+  hours   Float?
+
   @@unique([userId, date])
 }

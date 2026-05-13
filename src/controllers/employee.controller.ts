@@ -3,6 +3,24 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
+const employeeInclude = {
+    employeeProfile: {
+        include: {
+            statutory: true,
+            bank: true,
+            documents: true,
+            salary: true,
+            departmentRef: true,
+            designationRef: true,
+            
+            locationRef: true,
+            shiftRef: true,
+        },
+    },
+    role: true,
+    manager: true,
+};
+
 // Get all employees for the tenant
 export const getAllEmployees = async (req: Request, res: Response) => {
     try {
@@ -11,12 +29,10 @@ export const getAllEmployees = async (req: Request, res: Response) => {
 
         const employees = await prisma.user.findMany({
             where: { tenantId },
-            include: {
-                employeeProfile: true,
-                role: true
-            },
+            include: employeeInclude,
             orderBy: { createdAt: 'desc' }
         });
+                
 
         res.json(employees);
     } catch (error) {
@@ -33,7 +49,7 @@ export const createEmployee = async (req: Request, res: Response) => {
 
         const {
             name, email, password, phone, roleId, 
-            department, location, title, joiningDate,
+            department, location, title,departmentId,designationId,locationId,shiftId, joiningDate,
             uan, pfNumber, esic, pan, aadhaar,
             bankName, accountNumber, ifsc
         } = req.body;
@@ -82,6 +98,10 @@ export const createEmployee = async (req: Request, res: Response) => {
                     department,
                     location,
                     title,
+                    departmentId: departmentId || null,
+                    designationId: designationId || null,
+                    locationId: locationId || null,
+                    shiftId: shiftId || null,
                     joiningDate: joiningDate ? new Date(joiningDate) : new Date(),
                     status: 'Active'
                 }
@@ -112,7 +132,12 @@ export const createEmployee = async (req: Request, res: Response) => {
             return user;
         });
 
-        res.status(201).json(newUser);
+           const fullEmployee = await prisma.user.findFirst({
+            where: { id: newUser.id, tenantId },
+            include: employeeInclude,
+        });
+
+        res.status(201).json(fullEmployee);
     } catch (error: any) {
         console.error('Error creating employee:', error);
         res.status(500).json({ message: 'Server error', error: error.message });
@@ -166,6 +191,12 @@ export const updateEmployee = async (req: Request, res: Response) => {
             name, email,
             // Profile model
             phone, dob, bloodGroup, address, location, department, title, status,
+            
+            departmentId,
+            designationId,
+            locationId,
+            shiftId,
+            
             // Statutory
             uan, pfNumber, esic, pan, aadhaar,
             // Bank
@@ -175,6 +206,85 @@ export const updateEmployee = async (req: Request, res: Response) => {
         const tenantId = (req as any).user?.tenantId;
         if (!tenantId) return res.status(401).json({ message: 'Unauthorized' });
 
+        const existingEmployee = await prisma.user.findFirst({
+            where: {
+                id: Number(id),
+                tenantId,
+            },
+        });
+
+        if (!existingEmployee) {
+            return res.status(404).json({ message: 'Employee not found' });
+        }
+
+        await prisma.employeeProfile.upsert({
+            where: { userId: Number(id) },
+            create: {
+                userId: Number(id),
+                tenantId,
+
+                title,
+                department,
+                location,
+
+                departmentId: departmentId || null,
+                designationId: designationId || null,
+                locationId: locationId || null,
+                shiftId: shiftId || null,
+
+                phone,
+                status: status || 'Active',
+                dob: dob ? new Date(dob) : undefined,
+                bloodGroup,
+                address,
+
+                statutory: {
+                    create: { uan, pfNumber, esic, pan, aadhaar },
+                },
+                bank: {
+                    create: {
+                        bankName: bankName || 'Not Provided',
+                        accountNumber: accountNumber || 'Not Provided',
+                        ifsc: ifsc || 'Not Provided',
+                    },
+                },
+            },
+            update: {
+                title,
+                department,
+                location,
+
+                departmentId: departmentId || null,
+                designationId: designationId || null,
+                locationId: locationId || null,
+                shiftId: shiftId || null,
+
+                phone,
+                status,
+                dob: dob ? new Date(dob) : undefined,
+                bloodGroup,
+                address,
+
+                statutory: {
+                    upsert: {
+                        create: { uan, pfNumber, esic, pan, aadhaar },
+                        update: { uan, pfNumber, esic, pan, aadhaar },
+                    },
+                },
+                bank: {
+                    upsert: {
+                        create: {
+                            bankName: bankName || 'Not Provided',
+                            accountNumber: accountNumber || 'Not Provided',
+                            ifsc: ifsc || 'Not Provided',
+                        },
+                        update: { bankName, accountNumber, ifsc },
+                    },
+                },
+            },
+        });
+
+
         // Upsert Profile
         const updatedProfile = await prisma.employeeProfile.upsert({
             where: { userId: Number(id) },
@@ -182,6 +292,10 @@ export const updateEmployee = async (req: Request, res: Response) => {
                 userId: Number(id),
                 tenantId,
                 title, department, location, phone, status, dob: dob ? new Date(dob) : undefined, bloodGroup, address,
+                departmentId: departmentId || null,
+                designationId: designationId || null,
+                locationId: locationId || null,
+                shiftId: shiftId || null,
                 statutory: {
                     create: { uan, pfNumber, esic, pan, aadhaar }
                 },
