@@ -21,6 +21,138 @@ const employeeInclude = {
     manager: true,
 };
 
+const getOrCreateRoleId = async (
+  tenantId: string,
+  roleId?: any,
+  roleName?: any
+) => {
+  if (roleId) return Number(roleId);
+
+  if (roleName && typeof roleName === 'string') {
+    const cleanRoleName = roleName.trim();
+
+    if (cleanRoleName) {
+      let role = await prisma.role.findFirst({
+        where: {
+          tenantId,
+          name: cleanRoleName,
+        },
+      });
+
+      if (!role) {
+        role = await prisma.role.create({
+          data: {
+            tenantId,
+            name: cleanRoleName,
+            accessibleModules: '',
+          },
+        });
+      }
+
+      return role.id;
+    }
+  }
+
+  const defaultRole = await prisma.role.findFirst({
+    where: {
+      tenantId,
+      name: 'EMPLOYEE',
+    },
+  });
+
+  return defaultRole?.id || null;
+};
+
+// UPDATED: get or create default company
+const getDefaultCompany = async (tenantId: string, tx: any) => {
+  let company = await tx.company.findFirst({
+    where: { tenantId },
+  });
+
+  if (!company) {
+    company = await tx.company.create({
+      data: {
+        tenantId,
+        legalName: 'Default Company',
+      },
+    });
+  }
+
+  return company;
+};
+
+// UPDATED: auto-create department master
+const getOrCreateDepartmentId = async (
+  tenantId: string,
+  tx: any,
+  departmentId?: any,
+  departmentName?: any
+) => {
+  if (departmentId) return departmentId;
+
+  if (!departmentName || typeof departmentName !== 'string') return null;
+
+  const cleanName = departmentName.trim();
+  if (!cleanName) return null;
+
+  let department = await tx.department.findFirst({
+    where: {
+      tenantId,
+      name: cleanName,
+    },
+  });
+
+  if (!department) {
+    const company = await getDefaultCompany(tenantId, tx);
+
+    department = await tx.department.create({
+      data: {
+        tenantId,
+        companyId: company.id,
+        name: cleanName,
+      },
+    });
+  }
+
+  return department.id;
+};
+
+// UPDATED: auto-create designation master
+const getOrCreateDesignationId = async (
+  tenantId: string,
+  tx: any,
+  designationId?: any,
+  designationName?: any
+) => {
+  if (designationId) return designationId;
+
+  if (!designationName || typeof designationName !== 'string') return null;
+
+  const cleanTitle = designationName.trim();
+  if (!cleanTitle) return null;
+
+  let designation = await tx.designation.findFirst({
+    where: {
+      tenantId,
+      title: cleanTitle,
+    },
+  });
+
+  if (!designation) {
+    const company = await getDefaultCompany(tenantId, tx);
+
+    designation = await tx.designation.create({
+      data: {
+        tenantId,
+        companyId: company.id,
+        title: cleanTitle,
+      },
+    });
+  }
+
+  return designation.id;
+};
+
 // Get all employees for the tenant
 export const getAllEmployees = async (req: Request, res: Response) => {
     try {
@@ -48,8 +180,8 @@ export const createEmployee = async (req: Request, res: Response) => {
         if (!tenantId) return res.status(401).json({ message: 'Unauthorized' });
 
         const {
-            name, email, password, phone, roleId, 
-            department, location, title,departmentId,designationId,locationId,shiftId, joiningDate,
+            name, email, password, phone,role,roleId,
+            department, location, title ,departmentId,designationId,locationId,shiftId, joiningDate,
             uan, pfNumber, esic, pan, aadhaar,
             bankName, accountNumber, ifsc
         } = req.body;
@@ -69,6 +201,8 @@ export const createEmployee = async (req: Request, res: Response) => {
         }
 
         // If no roleId provided, find the default 'EMPLOYEE' role
+        const finalRoleId = await getOrCreateRoleId(tenantId, roleId, role);
+
         let targetRoleId = roleId;
         if (!targetRoleId) {
             const defaultRole = await prisma.role.findFirst({
@@ -78,6 +212,21 @@ export const createEmployee = async (req: Request, res: Response) => {
         }
 
         const newUser = await prisma.$transaction(async (tx) => {
+            // UPDATED: auto-create/find department and designation masters
+            const finalDepartmentId = await getOrCreateDepartmentId(
+                tenantId,
+                tx,
+                departmentId,
+                department
+            );
+
+            const finalDesignationId = await getOrCreateDesignationId(
+                tenantId,
+                tx,
+                designationId,
+                title || role
+            );
+
             // 1. Create User
             const user = await tx.user.create({
                 data: {
@@ -95,11 +244,14 @@ export const createEmployee = async (req: Request, res: Response) => {
                     userId: user.id,
                     tenantId,
                     phone,
+                    
                     department,
                     location,
-                    title,
-                    departmentId: departmentId || null,
-                    designationId: designationId || null,
+                    title: title || role || 'Employee',
+                    
+                    departmentId: finalDepartmentId,
+                    designationId: finalDesignationId,
+                    
                     locationId: locationId || null,
                     shiftId: shiftId || null,
                     joiningDate: joiningDate ? new Date(joiningDate) : new Date(),
@@ -186,11 +338,12 @@ export const getEmployee = async (req: Request, res: Response) => {
 export const updateEmployee = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
+       
         const {
             // User model
             name, email,
             // Profile model
-            phone, dob, bloodGroup, address, location, department, title, status,
+            phone, dob, bloodGroup, address,role,roleId,  location, department, title, status,
             
             departmentId,
             designationId,
@@ -216,6 +369,34 @@ export const updateEmployee = async (req: Request, res: Response) => {
         if (!existingEmployee) {
             return res.status(404).json({ message: 'Employee not found' });
         }
+        
+         const finalRoleId = await getOrCreateRoleId(tenantId, roleId, role);
+
+    // UPDATED: auto-create/find department and designation masters
+    const finalDepartmentId = await getOrCreateDepartmentId(
+      tenantId,
+      prisma,
+      departmentId,
+      department
+    );
+
+    const finalDesignationId = await getOrCreateDesignationId(
+      tenantId,
+      prisma,
+      designationId,
+      title || role
+    );
+
+    await prisma.user.update({
+      where: {
+        id: Number(id),
+      },
+      data: {
+        ...(name && { name }),
+        ...(email && { email }),
+        ...(finalRoleId && { roleId: finalRoleId }),
+      },
+    });
 
         await prisma.employeeProfile.upsert({
             where: { userId: Number(id) },
@@ -223,12 +404,15 @@ export const updateEmployee = async (req: Request, res: Response) => {
                 userId: Number(id),
                 tenantId,
 
-                title,
+                title: title || role || 'Employee',
                 department,
+                
                 location,
 
-                departmentId: departmentId || null,
-                designationId: designationId || null,
+                departmentId: finalDepartmentId,
+                designationId: finalDesignationId,
+               
+                
                 locationId: locationId || null,
                 shiftId: shiftId || null,
 
@@ -250,12 +434,13 @@ export const updateEmployee = async (req: Request, res: Response) => {
                 },
             },
             update: {
-                title,
+                title: title || role || 'Employee',
                 department,
                 location,
-
-                departmentId: departmentId || null,
-                designationId: designationId || null,
+                
+                departmentId: finalDepartmentId ,
+                designationId: finalDesignationId,
+                
                 locationId: locationId || null,
                 shiftId: shiftId || null,
 

@@ -68,6 +68,16 @@ export const createHoliday = async (req: Request, res: Response) => {
 export const create = (model: string) => async (req: Request, res: Response) => {
     try {
         const { tenantId } = req.user as any;
+
+        // FIX: frontend sends name, but Designation schema needs title
+        if (model === 'designation') {
+            if (req.body.name && !req.body.title) {
+                req.body.title = req.body.name;
+            }
+
+            delete req.body.name;
+            delete req.body.reportTo;
+        }
         // @ts-ignore
         const data = await prisma[model].create({
             data: { ...req.body, tenantId }
@@ -84,6 +94,15 @@ export const update = (model: string) => async (req: Request, res: Response) => 
     try {
         const { tenantId } = (req as any).user;
         const { id } = req.params;
+
+        if (model === 'designation') {
+            if (req.body.name && !req.body.title) {
+                req.body.title = req.body.name;
+            }
+
+            delete req.body.name;
+            delete req.body.reportTo;
+        }
 
         // @ts-ignore
         await prisma[model].updateMany({
