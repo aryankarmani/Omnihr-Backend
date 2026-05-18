@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
+import { createNotification, notifyAdmins } from "../utils/notification";
 
 const prisma = new PrismaClient();
 
@@ -100,6 +101,14 @@ export const createTeam = async (req: AuthRequest, res: Response) => {
       },
     });
 
+    
+    await notifyAdmins({
+      tenantId,
+      title: 'New Team Created',
+      message: `Team ${team.name} has been created.`,
+      type: 'team',
+    });
+
     return res.status(201).json(formatTeam(team));
   } catch (error) {
     console.error("Create team error:", error);
@@ -189,6 +198,24 @@ export const deleteTeam = async (req: AuthRequest, res: Response) => {
     await prisma.team.delete({
       where: { id: teamId },
     });
+    const teamWithMembers = await prisma.team.findFirst({
+      where: { id: teamId, tenantId },
+      include: {
+        members: true,
+      },
+    });
+
+    if (teamWithMembers) {
+      for (const member of teamWithMembers.members) {
+        await createNotification({
+          tenantId,
+          userId: member.userId,
+          title: "Team Deleted",
+          message: `Team ${existingTeam.name} has been deleted.`,
+          type: "team",
+        });
+      }
+    }
 
     return res.json({ message: "Team deleted successfully" });
   } catch (error) {
@@ -232,6 +259,7 @@ export const addMembers = async (req: AuthRequest, res: Response) => {
       }
 
       for (const userId of memberIds) {
+        
         const user = await tx.user.findFirst({
           where: { id: userId, tenantId },
         });
@@ -269,6 +297,25 @@ export const addMembers = async (req: AuthRequest, res: Response) => {
         },
       },
     });
+    for (const userId of memberIds) {
+      await notifyAdmins({
+        tenantId,
+        
+        title: 'Added to Team',
+        message: `You have been added to team ${updatedTeam?.name}.`,
+        type: 'team',
+      });
+    }
+
+    if (managerId) {
+      await createNotification({
+        tenantId,
+        userId: Number(managerId),
+        title: 'Team Manager Assigned',
+        message: `You have been assigned as manager of team ${updatedTeam?.name}.`,
+        type: 'team',
+      });
+    }
 
     return res.json(formatTeam(updatedTeam));
   } catch (error) {
@@ -304,6 +351,13 @@ export const removeMember = async (req: AuthRequest, res: Response) => {
         teamId,
         userId,
       },
+    });
+    await createNotification({
+      tenantId,
+      userId,
+      title: "Removed from Team",
+      message: `You have been removed from team ${team.name}.`,
+      type: "team",
     });
 
     return res.json({ message: "Member removed successfully" });

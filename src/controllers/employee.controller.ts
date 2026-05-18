@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
+import { createNotification, notifyAdmins } from '../utils/notification';
 
 const prisma = new PrismaClient();
 
@@ -88,7 +89,7 @@ const getOrCreateDepartmentId = async (
   departmentId?: any,
   departmentName?: any
 ) => {
-  if (departmentId) return departmentId;
+  if (departmentId) return String(departmentId);
 
   if (!departmentName || typeof departmentName !== 'string') return null;
 
@@ -124,7 +125,7 @@ const getOrCreateDesignationId = async (
   designationId?: any,
   designationName?: any
 ) => {
-  if (designationId) return designationId;
+  if (designationId) return String(designationId);
 
   if (!designationName || typeof designationName !== 'string') return null;
 
@@ -159,8 +160,20 @@ export const getAllEmployees = async (req: Request, res: Response) => {
         const tenantId = (req as any).user?.tenantId;
         if (!tenantId) return res.status(401).json({ message: 'Unauthorized' });
 
+        const { departmentId } = req.query;
+
         const employees = await prisma.user.findMany({
-            where: { tenantId },
+            where: {
+                tenantId,
+                ...(departmentId
+                    ? {
+                        employeeProfile: {
+                            departmentId: String(departmentId),
+                        },
+                    }
+                    : {})
+                ,
+            },
             include: employeeInclude,
             orderBy: { createdAt: 'desc' }
         });
@@ -234,7 +247,7 @@ export const createEmployee = async (req: Request, res: Response) => {
                     email,
                     password: password || 'Welcome@123', // Default password
                     tenantId,
-                    roleId: targetRoleId
+                    roleId: finalRoleId
                 }
             });
 
@@ -287,6 +300,21 @@ export const createEmployee = async (req: Request, res: Response) => {
            const fullEmployee = await prisma.user.findFirst({
             where: { id: newUser.id, tenantId },
             include: employeeInclude,
+        });
+
+        await createNotification({
+            tenantId,
+            userId: newUser.id,
+            title: 'Welcome!',
+            message: 'Your employee account has been created in Encalm HRMS.',
+            type: 'employee',
+        });
+
+        await notifyAdmins({
+            tenantId,
+            title: 'New Employee Added',
+            message: `${name} has been added as ${title || role || 'Employee'}.`,
+            type: 'employee',
         });
 
         res.status(201).json(fullEmployee);
@@ -477,8 +505,8 @@ export const updateEmployee = async (req: Request, res: Response) => {
                 userId: Number(id),
                 tenantId,
                 title, department, location, phone, status, dob: dob ? new Date(dob) : undefined, bloodGroup, address,
-                departmentId: departmentId || null,
-                designationId: designationId || null,
+                departmentId: finalDepartmentId ,
+                designationId: finalDesignationId,
                 locationId: locationId || null,
                 shiftId: shiftId || null,
                 statutory: {
@@ -519,6 +547,14 @@ export const updateEmployee = async (req: Request, res: Response) => {
                 }
             });
         }
+
+        await createNotification({
+            tenantId,
+            userId: Number(id),
+            title: 'Profile Updated',
+            message: 'Your employee profile has been updated by admin.',
+            type: 'employee',
+        });
 
         res.json(updatedProfile);
     } catch (error) {
