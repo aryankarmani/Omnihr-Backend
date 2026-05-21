@@ -65,6 +65,9 @@ model Tenant {
   attendancePolicy     AttendancePolicy?
   approvalWorkflows    ApprovalWorkflow[]
 
+  // Attendance regularization requests
+  attendanceRegularizations AttendanceRegularization[]
+
   // Payroll & Tax
   taxRegimeSelections    TaxRegimeSelection[]
   investmentDeclarations InvestmentDeclaration[]
@@ -115,6 +118,10 @@ model User {
   password String? // For auth
   name     String
 
+  // UPDATED: Soft delete fields
+  isActive  Boolean   @default(true)
+  deletedAt DateTime?
+
   // RBAC & SaaS
   tenantId String
   tenant   Tenant @relation(fields: [tenantId], references: [id])
@@ -124,6 +131,10 @@ model User {
   // Teams
   teamsManaged Team[]       @relation("TeamManager")
   teamMembers  TeamMember[]
+
+  // Attendance regularization relations
+  attendanceRegularizationRequests  AttendanceRegularization[] @relation("AttendanceRegularizationRequester")
+  attendanceRegularizationApprovals AttendanceRegularization[] @relation("AttendanceRegularizationApprover")
 
   // existing fields...
   notifications Notification[]
@@ -233,6 +244,10 @@ model EmployeeProfile {
   address     String?
   avatar      String? // URL or color code
   status      String    @default("Active") // Active, Inactive, OnNotice
+
+  // UPDATED: Soft delete fields
+  isActive  Boolean   @default(true)
+  deletedAt DateTime?
 
   // Relations
   statutory StatutoryDetails?
@@ -630,11 +645,50 @@ model AttendanceRecord {
   tenantId String
   tenant   Tenant @relation(fields: [tenantId], references: [id])
 
+  // UPDATED: Link approved correction requests to attendance record
+  regularizationRequests AttendanceRegularization[]
+
   date    String // YYYY-MM-DD
   inTime  DateTime?
   outTime DateTime?
-  status  String // Present, Absent, Late, Half Day, Weekend, Holiday
+  status  String
   hours   Float?
 
-  @@unique([userId, date])
+  @@unique([userId, date], name: "userId_date")
+}
+
+// UPDATED: Attendance regularization request table
+// Employee submits correction request, admin approves/rejects.
+model AttendanceRegularization {
+  id Int @id @default(autoincrement())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+
+  userId Int
+  user   User @relation("AttendanceRegularizationRequester", fields: [userId], references: [id])
+
+  attendanceRecordId Int?
+  attendanceRecord   AttendanceRecord? @relation(fields: [attendanceRecordId], references: [id])
+
+  date        String // YYYY-MM-DD
+  proposedIn  DateTime?
+  proposedOut DateTime?
+  reason      String
+
+  status          String    @default("PENDING") // PENDING, APPROVED, REJECTED
+  approverComment String?
+  approvedAt      DateTime?
+  rejectedAt      DateTime?
+
+  approverId Int?
+  approver   User? @relation("AttendanceRegularizationApprover", fields: [approverId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, date, status])
+  @@index([tenantId])
+  @@index([userId])
+  @@index([status])
 }
