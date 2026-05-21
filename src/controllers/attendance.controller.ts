@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
+import { createNotification } from '../utils/notification';
 
 const prisma = new PrismaClient();
 
@@ -75,6 +76,16 @@ export const punchToggle = async (req: AuthRequest, res: Response) => {
                     status
                 }
             });
+            if (status === 'Late') {
+                await createNotification({
+                    tenantId,
+                    userId,
+                    title: 'Attendance Alert',
+                    message: 'You were marked late today. Please regularize your attendance if needed.',
+                    type: 'attendance',
+                });
+            }
+
             return res.json({ message: 'Punched in successfully', record });
         } else if (record.inTime && !record.outTime) {
             // Punch Out

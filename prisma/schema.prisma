@@ -69,6 +69,9 @@ model Tenant {
   taxRegimeSelections    TaxRegimeSelection[]
   investmentDeclarations InvestmentDeclaration[]
   teams                  Team[]
+
+  // existing fields...
+  notifications Notification[]
 }
 
 model Role {
@@ -86,6 +89,26 @@ model Role {
   @@unique([name, tenantId])
 }
 
+model Notification {
+  id       String @id @default(uuid())
+  tenantId String
+  userId   Int
+
+  title   String
+  message String
+  type    String  @default("system")
+  unread  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([tenantId])
+  @@index([userId])
+}
+
 model User {
   id       Int     @id @default(autoincrement())
   email    String
@@ -101,6 +124,9 @@ model User {
   // Teams
   teamsManaged Team[]       @relation("TeamManager")
   teamMembers  TeamMember[]
+
+  // existing fields...
+  notifications Notification[]
 
   // Hierarchy
   managerId    Int?

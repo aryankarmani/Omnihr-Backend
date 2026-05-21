@@ -8,9 +8,17 @@ export const getAll = (model: string) => async (req: Request, res: Response) => 
     try {
         const { tenantId } = req.user as any;
         // @ts-ignore
-        const data = await prisma[model].findMany({
+        let data = await prisma[model].findMany({
             where: { tenantId }
         });
+
+        // ✅ UPDATED: convert title to name for frontend
+        if (model === 'designation') {
+            data = data.map((item: any) => ({
+                ...item,
+                name: item.title,
+            }));
+        }
         res.json(data);
     } catch (error:any) {
         res.status(500).json({ error: 'Failed to fetch data' ,
@@ -68,10 +76,26 @@ export const createHoliday = async (req: Request, res: Response) => {
 export const create = (model: string) => async (req: Request, res: Response) => {
     try {
         const { tenantId } = req.user as any;
+
+        // FIX: frontend sends name, but Designation schema needs title
+        if (model === 'designation') {
+            if (req.body.name && !req.body.title) {
+                req.body.title = req.body.name;
+            }
+
+            delete req.body.name;
+            delete req.body.reportTo;
+        }
         // @ts-ignore
         const data = await prisma[model].create({
             data: { ...req.body, tenantId }
         });
+         if (model === 'designation') {
+            return res.json({
+                ...data,
+                name: data.title,
+            });
+        }
         res.json(data);
     } catch (error:any) {
         res.status(500).json({ error: 'Failed to create record' ,
@@ -85,6 +109,15 @@ export const update = (model: string) => async (req: Request, res: Response) => 
         const { tenantId } = (req as any).user;
         const { id } = req.params;
 
+        if (model === 'designation') {
+            if (req.body.name && !req.body.title) {
+                req.body.title = req.body.name;
+            }
+
+            delete req.body.name;
+            delete req.body.reportTo;
+        }
+
         // @ts-ignore
         await prisma[model].updateMany({
             where: { id, tenantId },
@@ -95,6 +128,12 @@ export const update = (model: string) => async (req: Request, res: Response) => 
         const updated = await prisma[model].findFirst({
             where: { id, tenantId },
         });
+          if (model === 'designation' && updated) {
+            return res.json({
+                ...updated,
+                name: updated.title,
+            });
+        }
 
         res.json(updated);
     } catch (error: any) {
