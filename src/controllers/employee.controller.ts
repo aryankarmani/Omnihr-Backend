@@ -165,10 +165,14 @@ export const getAllEmployees = async (req: Request, res: Response) => {
         const employees = await prisma.user.findMany({
             where: {
                 tenantId,
+                isActive: true,
+                deletedAt: null,
                 ...(departmentId
                     ? {
                         employeeProfile: {
                             departmentId: String(departmentId),
+                            isActive: true,
+                            deletedAt: null,
                         },
                     }
                     : {})
@@ -596,44 +600,61 @@ export const deleteEmployee = async (req: Request, res: Response) => {
         const tenantId = (req as any).user?.tenantId;
  
         if (!tenantId) return res.status(401).json({ message: 'Unauthorized' });
- 
+        
+         const userId = Number(id);
+
+        const employee = await prisma.user.findFirst({
+            where: {
+                id: userId,
+                tenantId,
+                isActive: true,
+                deletedAt: null,
+            },
+            include: {
+                employeeProfile: true,
+            },
+        });
+
+        if (!employee) {
+            return res.status(404).json({ message: 'Employee not found or already deleted' });
+        }
+
         // Use transaction to ensure everything is deleted
         await prisma.$transaction(async (tx) => {
             // 0. Handle subordinates (nullify their managerId)
             await tx.user.updateMany({
-                where: { managerId: Number(id) },
+                where: { managerId: userId,
+                    tenantId,
+                 },
                 data: { managerId: null }
             });
  
             // 1. Delete dependent records (Bank, Statutory, Documents, Salary)
-            const profile = await tx.employeeProfile.findUnique({ where: { userId: Number(id) } });
-            
-            if (profile) {
-                await tx.bankDetails.deleteMany({ where: { profileId: profile.id } });
-                await tx.statutoryDetails.deleteMany({ where: { profileId: profile.id } });
-                await tx.document.deleteMany({ where: { profileId: profile.id } });
-                await tx.salaryStructure.deleteMany({ where: { profileId: profile.id } });
-                
-                // 2. Delete Employee Profile
-                await tx.employeeProfile.delete({ where: { id: profile.id } });
-            }
-  
-            // 3. Delete Attendance Records
-            await tx.attendanceRecord.deleteMany({ where: { userId: Number(id) } });
-  
-            // 4. Delete Leaves
-            await tx.leave.deleteMany({ where: { userId: Number(id) } });
-  
-            // 5. Delete Tax/Investment Data
-            await tx.taxRegimeSelection.deleteMany({ where: { userId: Number(id) } });
-            await tx.investmentDeclaration.deleteMany({ where: { userId: Number(id) } });
-  
-            // 6. Delete User
-            await tx.user.delete({
+          
+            // UPDATED: Soft delete EmployeeProfile
+            // No bank/statutory/document/salary records are deleted now
+            await tx.employeeProfile.updateMany({
                 where: {
-                    id: Number(id),
-                    tenantId
-                }
+                    userId,
+                    tenantId,
+                },
+                data: {
+                    isActive: false,
+                    deletedAt: new Date(),
+                    status: 'Inactive',
+                },
+            });
+
+            // UPDATED: Soft delete User
+            // Attendance, leave, tax, investment and payroll history remain saved
+            await tx.user.update({
+                where: {
+                    id: userId,
+                },
+                data: {
+                    isActive: false,
+                    deletedAt: new Date(),
+                },
             });
         });
   
