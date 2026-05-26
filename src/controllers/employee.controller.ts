@@ -199,8 +199,12 @@ export const createEmployee = async (req: Request, res: Response) => {
         const {
             name, email, password, phone,role,roleId,
             department, location, title ,departmentId,designationId,locationId,shiftId, joiningDate,
+            dob,
+            address,
+            bloodGroup,
             uan, pfNumber, esic, pan, aadhaar,
-            bankName, accountNumber, ifsc
+            bankName, accountNumber, ifsc,
+            salary,
         } = req.body;
 
         // Basic validation
@@ -219,6 +223,17 @@ export const createEmployee = async (req: Request, res: Response) => {
 
         // If no roleId provided, find the default 'EMPLOYEE' role
         const finalRoleId = await getOrCreateRoleId(tenantId, roleId, role);
+
+        // NEW UPDATE: Convert salary values safely into numbers
+    const salaryData = {
+      basic: Number(salary?.basic || 0),
+      hra: Number(salary?.hra || 0),
+      special: Number(salary?.special || 0),
+      medical: Number(salary?.medical || 0),
+      pf: Number(salary?.pf || 0),
+      pt: Number(salary?.pt || 0),
+      tax: Number(salary?.tax || 0),
+    };
 
         let targetRoleId = roleId;
         if (!targetRoleId) {
@@ -272,8 +287,18 @@ export const createEmployee = async (req: Request, res: Response) => {
                     locationId: locationId || null,
                     shiftId: shiftId || null,
                     joiningDate: joiningDate ? new Date(joiningDate) : new Date(),
-                    status: 'Active'
-                }
+                    status: 'Active',
+
+                    // NEW UPDATE: Save DOB, Address and Blood Group
+                    dob: dob ? new Date(dob) : null,
+                    address: address || null,
+                    bloodGroup: bloodGroup || null,
+
+                    // NEW UPDATE: Create Salary Structure while onboarding
+                    salary: {
+                        create: salaryData,
+                    },
+                },
             });
 
             // 3. Create Statutory Details
@@ -370,6 +395,7 @@ export const getEmployee = async (req: Request, res: Response) => {
 export const updateEmployee = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
+       const userId = Number(id);
        
         const {
             // User model
@@ -424,7 +450,7 @@ export const updateEmployee = async (req: Request, res: Response) => {
 
     await prisma.user.update({
       where: {
-        id: Number(id),
+        id:userId,
       },
       data: {
         ...(name && { name }),
@@ -443,106 +469,6 @@ export const updateEmployee = async (req: Request, res: Response) => {
       pt: Number(salary?.pt || 0),
       tax: Number(salary?.tax || 0),
     };
-
-
-         await prisma.employeeProfile.upsert({
-            where: { userId: Number(id) },
-            create: {
-                userId: Number(id),
-                tenantId,
-
-                title: title || role || 'Employee',
-                department,
-                
-                location,
-
-                departmentId: finalDepartmentId,
-                designationId: finalDesignationId,
-               
-                
-                locationId: locationId || null,
-                shiftId: shiftId || null,
-
-                phone,
-                status: status || 'Active',
-                dob: dob ? new Date(dob) : undefined,
-                bloodGroup,
-                address,
-
-                statutory: {
-                    create: { uan, pfNumber, esic, pan, aadhaar },
-                },
-                bank: {
-                    create: {
-                        bankName: bankName || 'Not Provided',
-                        accountNumber: accountNumber || 'Not Provided',
-                        ifsc: ifsc || 'Not Provided',
-                    },
-                },
-                // NEW UPDATE: Create salary record
-                salary: {
-                    create: salaryData,
-                },
-            },
-
-             
-    
-
-            update: {
-                title: title || role || 'Employee',
-                department,
-                location,
-                
-                departmentId: finalDepartmentId ,
-                designationId: finalDesignationId,
-                
-                locationId: locationId || null,
-                shiftId: shiftId || null,
-
-                phone,
-                status,
-                dob: dob ? new Date(dob) : undefined,
-                bloodGroup,
-                address,
-
-                statutory: {
-                    upsert: {
-                        create: { uan, pfNumber, esic, pan, aadhaar },
-                        update: { uan, pfNumber, esic, pan, aadhaar },
-                    },
-                },
-                bank: {
-                    upsert: {
-                        create: {
-                            bankName: bankName || 'Not Provided',
-                            accountNumber: accountNumber || 'Not Provided',
-                            ifsc: ifsc || 'Not Provided',
-                        },
-                        update: { bankName, accountNumber, ifsc },
-                    },
-                },
-
-        // NEW UPDATE: Save/update salary record
-        salary: {
-          upsert: {
-            create: salaryData,
-            update: salaryData,
-          },
-        },
-      },
-
-      include: {
-        statutory: true,
-        bank: true,
-        documents: true,
-        salary: true, // NEW UPDATE: return salary to frontend
-        departmentRef: true,
-        designationRef: true,
-        locationRef: true,
-        shiftRef: true,
-            },
-        
-        });
 
 
         // Upsert Profile
