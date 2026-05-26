@@ -184,7 +184,7 @@ export const register = async (req: Request, res: Response) => {
 export const login = async (req: Request, res: Response) => {
   try {
     
-    console.log("REQ BODY:", req.body);
+    
     const { email, password } = req.body;
 
     if (!email || !password) {
@@ -202,11 +202,12 @@ export const login = async (req: Request, res: Response) => {
         tenant: true,
       },
     });
-    console.log("LOGIN EMAIL:", email);
-console.log("USER FOUND:", user);
-console.log("DB PASSWORD:", user?.password);
+    
+// console.log("USER FOUND:", user);
+// console.log("DB PASSWORD:", user?.password);
 
     if (!user || !user.password) {
+       
       return res.status(401).json({
         message: "Invalid email or password",
       });
@@ -218,10 +219,13 @@ console.log("DB PASSWORD:", user?.password);
     : password === user.password;
 
     if (!isPasswordValid) {
+       
       return res.status(401).json({
         message: "Invalid email or password",
       });
     }
+
+   
 
     const token = createToken(user);
 
@@ -241,7 +245,7 @@ console.log("DB PASSWORD:", user?.password);
       },
     });
   } catch (error: any) {
-    console.error("Login error:", error);
+    console.error( error);
     return res.status(500).json({
       message: "Server error",
       details: error.message,
