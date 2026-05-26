@@ -385,7 +385,10 @@ export const updateEmployee = async (req: Request, res: Response) => {
             // Statutory
             uan, pfNumber, esic, pan, aadhaar,
             // Bank
-            bankName, accountNumber, ifsc
+            bankName, accountNumber, ifsc,
+
+             // NEW UPDATE: Salary data from frontend
+            salary,
         } = req.body;
 
         const tenantId = (req as any).user?.tenantId;
@@ -430,7 +433,19 @@ export const updateEmployee = async (req: Request, res: Response) => {
       },
     });
 
-        await prisma.employeeProfile.upsert({
+    // NEW UPDATE: Convert salary string values into numbers
+    const salaryData = {
+      basic: Number(salary?.basic || 0),
+      hra: Number(salary?.hra || 0),
+      special: Number(salary?.special || 0),
+      medical: Number(salary?.medical || 0),
+      pf: Number(salary?.pf || 0),
+      pt: Number(salary?.pt || 0),
+      tax: Number(salary?.tax || 0),
+    };
+
+
+         await prisma.employeeProfile.upsert({
             where: { userId: Number(id) },
             create: {
                 userId: Number(id),
@@ -464,7 +479,15 @@ export const updateEmployee = async (req: Request, res: Response) => {
                         ifsc: ifsc || 'Not Provided',
                     },
                 },
+                // NEW UPDATE: Create salary record
+                salary: {
+                    create: salaryData,
+                },
             },
+
+             
+    
+
             update: {
                 title: title || role || 'Employee',
                 department,
@@ -498,7 +521,27 @@ export const updateEmployee = async (req: Request, res: Response) => {
                         update: { bankName, accountNumber, ifsc },
                     },
                 },
+
+        // NEW UPDATE: Save/update salary record
+        salary: {
+          upsert: {
+            create: salaryData,
+            update: salaryData,
+          },
+        },
+      },
+
+      include: {
+        statutory: true,
+        bank: true,
+        documents: true,
+        salary: true, // NEW UPDATE: return salary to frontend
+        departmentRef: true,
+        designationRef: true,
+        locationRef: true,
+        shiftRef: true,
             },
+        
         });
 
 
