@@ -232,6 +232,7 @@ export const login = async (req: Request, res: Response) => {
     return res.json({
       message: "Login successful",
       token,
+      tenantId: user.tenantId,
       user: {
         id: user.id,
         name: user.name,
