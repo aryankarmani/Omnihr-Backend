@@ -18,6 +18,8 @@ import leaveRoutes from './routes/leave.routes';
 import reportRoutes from './routes/report.routes';
 import teamRoutes from './routes/team.routes';
 import notificationRoutes from './routes/notification.routes';
+import { authenticate } from './middleware/auth';
+
 app.use(cors());
 app.use(express.json());
 
@@ -48,6 +50,6 @@ app.use('/api/attendance', attendanceRoutes);
 app.use('/api/leave', leaveRoutes);
 app.use('/api/teams', teamRoutes);
 app.use('/api/dashboard', require('./routes/dashboard.routes').default);
-app.use('/api/reports', reportRoutes);
+app.use('/api/reports', authenticate,reportRoutes);
 
 export { app, prisma };
