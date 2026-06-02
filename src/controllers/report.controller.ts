@@ -478,11 +478,11 @@ export const getDashboard = async (
     const avgAttendance =
       totalExpected > 0
         ? Math.min(
-            100,
-            Math.round(
-              (presentCount / totalExpected) * 100
-            )
+          100,
+          Math.round(
+            (presentCount / totalExpected) * 100
           )
+        )
         : 0;
 
     // ===== LEAVES =====
@@ -628,32 +628,32 @@ export const exportMonthlyAttendance = async (
   req: Request,
   res: Response
 ) => {
-  
-console.log("EXPORT HIT");
-console.log("QUERY:", req.query);
-console.log("HEADERS:", req.headers);
+
+  console.log("EXPORT HIT");
+  console.log("QUERY:", req.query);
+  console.log("HEADERS:", req.headers);
 
 
   try {
-       
-const tenantId =
-  (req.headers["x-tenant-id"] as string) ||
-  req.query.tenantId as string;
 
-if (!tenantId) {
-  return res.status(400).json({
-    message: "Tenant ID missing"
-  });
-}
-    
-const data =
-  await prisma.attendanceRecord.findMany({
-    where: { tenantId },
+    const tenantId =
+      (req.headers["x-tenant-id"] as string) ||
+      req.query.tenantId as string;
 
-    include: {
-      user: true
+    if (!tenantId) {
+      return res.status(400).json({
+        message: "Tenant ID missing"
+      });
     }
-  });
+
+    const data =
+      await prisma.attendanceRecord.findMany({
+        where: { tenantId },
+
+        include: {
+          user: true
+        }
+      });
 
 
     if (!data.length) {
@@ -662,23 +662,23 @@ const data =
       );
     }
 
-    
-const formatted = data.map((a) => ({
 
-  userId: a.userId,
+    const formatted = data.map((a) => ({
 
-  name: a.user?.name || "",
+      userId: a.userId,
 
-  email: a.user?.email || "",
+      name: a.user?.name || "",
 
-  date: new Date(a.date)
-    .toLocaleDateString("en-GB"),
+      email: a.user?.email || "",
 
-  status: a.status,
+      date: new Date(a.date)
+        .toLocaleDateString("en-GB"),
 
-  hours: a.hours || 0
+      status: a.status,
 
-}));
+      hours: a.hours || 0
+
+    }));
 
 
 
@@ -801,20 +801,20 @@ export const exportLeaveBalance = async (
   res: Response
 ) => {
   console.log("EXPORT HIT");
-console.log("QUERY:", req.query);
-console.log("HEADERS:", req.headers);
+  console.log("QUERY:", req.query);
+  console.log("HEADERS:", req.headers);
 
   try {
-   
-const tenantId =
-  (req.headers["x-tenant-id"] as string) ||
-  req.query.tenantId as string;
 
-if (!tenantId) {
-  return res.status(400).json({
-    message: "Tenant ID missing"
-  });
-}
+    const tenantId =
+      (req.headers["x-tenant-id"] as string) ||
+      req.query.tenantId as string;
+
+    if (!tenantId) {
+      return res.status(400).json({
+        message: "Tenant ID missing"
+      });
+    }
 
 
 
@@ -829,64 +829,64 @@ if (!tenantId) {
     const sheet =
       workbook.addWorksheet("Leaves");
 
-    
-sheet.columns = [
 
-  {
-    header: "Employee ID",
-    key: "userId",
-    width: 15
-  },
+    sheet.columns = [
 
-  {
-    header: "Name",
-    key: "name",
-    width: 25
-  },
+      {
+        header: "Employee ID",
+        key: "userId",
+        width: 15
+      },
 
-  {
-    header: "Email",
-    key: "email",
-    width: 30
-  },
+      {
+        header: "Name",
+        key: "name",
+        width: 25
+      },
 
-  {
-    header: "Status",
-    key: "status",
-    width: 15
-  },
+      {
+        header: "Email",
+        key: "email",
+        width: 30
+      },
 
-  {
-    header: "Start Date",
-    key: "start",
-    width: 20
-  },
+      {
+        header: "Status",
+        key: "status",
+        width: 15
+      },
 
-  {
-    header: "End Date",
-    key: "end",
-    width: 20
-  }
-];
+      {
+        header: "Start Date",
+        key: "start",
+        width: 20
+      },
+
+      {
+        header: "End Date",
+        key: "end",
+        width: 20
+      }
+    ];
 
 
     leaves.forEach((l) => {
-      
-sheet.addRow({
 
-  userId: l.userId,
+      sheet.addRow({
 
-  name: l.user?.name || "",
+        userId: l.userId,
 
-  email: l.user?.email || "",
+        name: l.user?.name || "",
 
-  status: l.status,
+        email: l.user?.email || "",
 
-  start: l.startDate,
+        status: l.status,
 
-  end: l.endDate
+        start: l.startDate,
 
-});
+        end: l.endDate
+
+      });
 
 
     });
