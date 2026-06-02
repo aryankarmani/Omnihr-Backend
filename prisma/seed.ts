@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
@@ -78,14 +79,20 @@ async function main() {
         }
     });
 
+    // Hash passwords before seeding
+    const hashedAdminPassword = await bcrypt.hash('password123', 10);
+    const hashedEmployeePassword = await bcrypt.hash('password123', 10);
+
     // 3. Create Users
     // Admin
     await prisma.user.upsert({
         where: { email_tenantId: { email: 'admin@example.com', tenantId: tenant.id } },
-        update: {},
+        update: {
+            password: hashedAdminPassword,
+        },
         create: {
             email: 'admin@example.com',
-            password: 'password123',
+            password: hashedAdminPassword,
             name: 'System Admin',
             tenantId: tenant.id,
             roleId: adminRole.id
@@ -95,10 +102,12 @@ async function main() {
     // Employee
     const employee = await prisma.user.upsert({
         where: { email_tenantId: { email: 'employee@encalm.com', tenantId: tenant.id } },
-        update: {},
+        update: {
+            password: hashedEmployeePassword,
+        },
         create: {
             email: 'employee@encalm.com',
-            password: 'password123',
+            password: hashedEmployeePassword,
             name: 'Raman Thakur',
             tenantId: tenant.id,
             roleId: empRole.id
