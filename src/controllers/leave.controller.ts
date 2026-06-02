@@ -104,7 +104,12 @@ export const getLeaveHistory = async (req: Request, res: Response) => {
             include: {
                 leaveType: true,
                 user: {
-                    select: { name: true }
+                    select: { 
+                        id: true,
+                        name: true,
+                        email: true,
+                        employeeProfile: true
+                    }
                 }
             },
             orderBy: { createdAt: 'desc' }

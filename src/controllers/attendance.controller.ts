@@ -141,7 +141,7 @@ export const getAttendanceHistory = async (req: AuthRequest, res: Response) => {
     try {
         const loggedInUser = req.user;
         const employeeIdQuery = req.query.employeeId ? Number(req.query.employeeId) : null;
-        
+
         // Security: Only HR_ADMIN can view other employees' attendance
         let userId = loggedInUser.id;
         if (employeeIdQuery && loggedInUser.role === 'HR_ADMIN') {
@@ -176,7 +176,7 @@ export const getAttendanceStats = async (req: AuthRequest, res: Response) => {
     try {
         const loggedInUser = req.user;
         const employeeIdQuery = req.query.employeeId ? Number(req.query.employeeId) : null;
-        
+
         // Security: Only HR_ADMIN can view other employees' attendance
         let userId = loggedInUser.id;
         if (employeeIdQuery && loggedInUser.role?.name === 'HR_ADMIN') {
@@ -241,13 +241,14 @@ export const applyRegularization = async (req: AuthRequest, res: Response) => {
         const finalInTime = proposedIn || inTime;
         const finalOutTime = proposedOut || outTime;
 
-        const targetDate = new Date(date);
+        const [y, m, d] = date.split('-').map(Number);
+        const targetDate = new Date(y, m - 1, d);
         targetDate.setHours(0, 0, 0, 0);
 
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
-        const diffDays = Math.ceil(
+        const diffDays = Math.round(
             (today.getTime() - targetDate.getTime()) / (1000 * 60 * 60 * 24)
         );
 
@@ -327,7 +328,7 @@ export const applyRegularization = async (req: AuthRequest, res: Response) => {
         await notifyAdmins({
             tenantId,
             title: 'Attendance Correction Request',
-            message:`${request.user?.name || request.user?.email || 'Employee'} submitted attendance regularization for ${date}.`,
+            message: `${request.user?.name || request.user?.email || 'Employee'} submitted attendance regularization for ${date}.`,
             type: 'attendance',
         });
 
@@ -628,7 +629,7 @@ export const forceRegularizeAttendance = async (req: AuthRequest, res: Response)
             select: {
                 name: true,
                 email: true,
-    },
+            },
         });
 
         if (!employee) {
