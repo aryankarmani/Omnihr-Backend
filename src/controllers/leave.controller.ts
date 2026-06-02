@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { notifyAdmins,createNotification} from '../utils/notification';
+import { getManagerTeamMemberIds } from "../utils/teamScope";
 
 const prisma = new PrismaClient();
 
@@ -77,9 +78,26 @@ export const getLeaveHistory = async (req: Request, res: Response) => {
         if (!userId || !tenantId) return res.status(401).json({ message: 'Unauthorized' });
 
         // If HR_ADMIN and all=true, return all leaves for the tenant
-        const whereClause = (userRole === 'HR_ADMIN' && all === 'true') 
-            ? { tenantId } 
-            : { userId, tenantId };
+        let whereClause: any = {
+            userId,
+            tenantId,
+        };
+
+        if (all === "true" && userRole === "HR_ADMIN") {
+            whereClause = { tenantId };
+        }
+
+        // ✅ NEW: MANAGER scoped leave approvals
+        if (all === "true" && userRole === "MANAGER") {
+            const memberIds = await getManagerTeamMemberIds(tenantId, userId);
+
+            whereClause = {
+                tenantId,
+                userId: {
+                    in: memberIds,
+                },
+            };
+        }
 
         const leaves = await prisma.leave.findMany({
             where: whereClause,
