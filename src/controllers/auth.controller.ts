@@ -72,11 +72,16 @@ import { Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import jwt  from "jsonwebtoken";
+import crypto from "crypto";
+
 
 const prisma = new PrismaClient();
 
-const createToken = (user: any) => {
-     const secret = process.env.JWT_SECRET || "secret";
+const ACCESS_TOKEN_EXPIRES_IN = "24h";
+const REFRESH_TOKEN_DAYS = 7;
+
+const createAccessToken = (user: any) => {
+     //const secret = process.env.JWT_SECRET || "secret";
 
   
   return jwt.sign(
@@ -87,11 +92,28 @@ const createToken = (user: any) => {
       roleId: user.roleId,
       role: user.role?.name || "EMPLOYEE",
     },
-    secret,
-    { expiresIn:  "24hrs",
-        
-     }
+    process.env.JWT_SECRET || "secret",
+    { expiresIn: ACCESS_TOKEN_EXPIRES_IN }
   );
+};
+
+// ✅ Creates random refresh token and stores it in DB
+const createRefreshToken = async (user: any) => {
+  const token = crypto.randomBytes(64).toString("hex");
+
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + REFRESH_TOKEN_DAYS);
+
+  await prisma.refreshToken.create({
+    data: {
+      token,
+      userId: user.id,
+      tenantId: user.tenantId,
+      expiresAt,
+    },
+  });
+
+  return token;
 };
 
 export const register = async (req: Request, res: Response) => {
@@ -154,7 +176,7 @@ export const register = async (req: Request, res: Response) => {
       },
     });
 
-    const token = createToken(user);
+    const token = createAccessToken(user);
 
     return res.status(201).json({
       message: "User registered successfully",
@@ -196,6 +218,8 @@ export const login = async (req: Request, res: Response) => {
     const user = await prisma.user.findFirst({
       where: {
         email: email.toLowerCase().trim(),
+        isActive: true,
+        deletedAt: null,
       },
       include: {
         role: true,
@@ -214,9 +238,8 @@ export const login = async (req: Request, res: Response) => {
     }
 
    const isPasswordValid =
-  user.password.startsWith("$2a$") || user.password.startsWith("$2b$")
-    ? await bcrypt.compare(password, user.password)
-    : password === user.password;
+   await bcrypt.compare(password, user.password);
+    
 
     if (!isPasswordValid) {
        
@@ -227,11 +250,14 @@ export const login = async (req: Request, res: Response) => {
 
    
 
-    const token = createToken(user);
+    
+    const token = createAccessToken(user);
+    const refreshToken = await createRefreshToken(user);
 
     return res.json({
       message: "Login successful",
       token,
+      refreshToken,
       user: {
         id: user.id,
         name: user.name,
@@ -246,6 +272,88 @@ export const login = async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error( error);
+    return res.status(500).json({
+      message: "Server error",
+      details: error.message,
+    });
+  }
+};
+
+// ✅ REFRESH TOKEN: frontend calls /api/auth/refresh-token
+export const refreshToken = async (req: Request, res: Response) => {
+  try {
+    const { refreshToken } = req.body;
+
+    if (!refreshToken) {
+      return res.status(400).json({
+        message: "Refresh token is required",
+      });
+    }
+
+    const storedToken = await prisma.refreshToken.findUnique({
+      where: { token: refreshToken },
+      include: {
+        user: {
+          include: {
+            role: true,
+            tenant: true,
+          },
+        },
+      },
+    });
+
+    if (!storedToken) {
+      return res.status(401).json({
+        message: "Invalid refresh token",
+      });
+    }
+
+    if (storedToken.expiresAt < new Date()) {
+      await prisma.refreshToken.delete({
+        where: { id: storedToken.id },
+      });
+
+      return res.status(401).json({
+        message: "Refresh token expired",
+      });
+    }
+
+    if (!storedToken.user.isActive || storedToken.user.deletedAt) {
+      return res.status(401).json({
+        message: "User account is inactive",
+      });
+    }
+
+    const newAccessToken = createAccessToken(storedToken.user);
+
+    return res.json({
+      token: newAccessToken,
+    });
+  } catch (error: any) {
+    console.error("Refresh token error:", error);
+    return res.status(500).json({
+      message: "Server error",
+      details: error.message,
+    });
+  }
+};
+
+// ✅ LOGOUT: deletes refresh token from DB
+export const logout = async (req: Request, res: Response) => {
+  try {
+    const { refreshToken } = req.body;
+
+    if (refreshToken) {
+      await prisma.refreshToken.deleteMany({
+        where: { token: refreshToken },
+      });
+    }
+
+    return res.json({
+      message: "Logged out successfully",
+    });
+  } catch (error: any) {
+    console.error("Logout error:", error);
     return res.status(500).json({
       message: "Server error",
       details: error.message,

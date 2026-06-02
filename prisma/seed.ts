@@ -18,11 +18,37 @@ async function main() {
 
     // 2. Create Permissions & Roles
     // Create new Permission entries
+    // const permissions = [
+    //     { name: 'View Dashboard', code: 'DASHBOARD_VIEW', module: 'CORE' },
+    //     { name: 'Manage Masters', code: 'MASTERS_MANAGE', module: 'ADMIN' },
+    //     { name: 'View Employees', code: 'EMPLOYEE_VIEW', module: 'HR' },
+    // ];
     const permissions = [
-        { name: 'View Dashboard', code: 'DASHBOARD_VIEW', module: 'CORE' },
-        { name: 'Manage Masters', code: 'MASTERS_MANAGE', module: 'ADMIN' },
-        { name: 'View Employees', code: 'EMPLOYEE_VIEW', module: 'HR' },
-    ];
+  { name: "View Dashboard", code: "DASHBOARD_VIEW", module: "DASHBOARD" },
+
+  { name: "View Employees", code: "EMPLOYEE_VIEW", module: "EMPLOYEE" },
+  { name: "Create Employee", code: "EMPLOYEE_CREATE", module: "EMPLOYEE" },
+  { name: "Update Employee", code: "EMPLOYEE_UPDATE", module: "EMPLOYEE" },
+  { name: "Delete Employee", code: "EMPLOYEE_DELETE", module: "EMPLOYEE" },
+
+  { name: "View Attendance", code: "ATTENDANCE_VIEW", module: "ATTENDANCE" },
+  { name: "Regularize Attendance", code: "ATTENDANCE_REGULARIZE", module: "ATTENDANCE" },
+  { name: "Approve Attendance", code: "ATTENDANCE_APPROVE", module: "ATTENDANCE" },
+
+  { name: "View Leave", code: "LEAVE_VIEW", module: "LEAVE" },
+  { name: "Approve Leave", code: "LEAVE_APPROVE", module: "LEAVE" },
+  { name: "Reject Leave", code: "LEAVE_REJECT", module: "LEAVE" },
+
+  { name: "View Payroll", code: "PAYROLL_VIEW", module: "PAYROLL" },
+  { name: "Download Payroll", code: "PAYROLL_DOWNLOAD", module: "PAYROLL" },
+
+  { name: "View Team", code: "TEAM_VIEW", module: "TEAM" },
+  { name: "Create Team", code: "TEAM_CREATE", module: "TEAM" },
+  { name: "Update Team", code: "TEAM_UPDATE", module: "TEAM" },
+  { name: "Manage Team Access Control", code: "TEAM_ACCESS_CONTROL", module: "TEAM" },
+
+  { name: "Manage Masters", code: "MASTERS_MANAGE", module: "MASTERS" },
+];
 
     for (const p of permissions) {
         await prisma.permission.upsert({
