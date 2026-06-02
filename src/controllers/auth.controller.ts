@@ -228,6 +228,7 @@ console.log("DB PASSWORD:", user?.password);
     return res.json({
       message: "Login successful",
       token,
+      tenantId: user.tenantId,
       user: {
         id: user.id,
         name: user.name,
