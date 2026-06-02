@@ -41,10 +41,7 @@ app.get('/api/debug-routes', (req, res) => {
 
 app.use('/api/chat', chatRoutes);
 app.use('/api/employee', employeeRoutes);
-app.use('/api/auth', (req, res, next) => {
-  console.log("AUTH ROUTE HIT:", req.method, req.url);
-  next();
-}, authRoutes);
+app.use('/api/auth', authRoutes);
 app.use('/api/masters', mastersRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/leave', leaveRoutes);

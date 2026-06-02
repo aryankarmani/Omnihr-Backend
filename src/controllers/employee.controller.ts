@@ -14,7 +14,7 @@ const employeeInclude = {
             salary: true,
             departmentRef: true,
             designationRef: true,
-            
+
             locationRef: true,
             shiftRef: true,
         },
@@ -24,135 +24,135 @@ const employeeInclude = {
 };
 
 const getOrCreateRoleId = async (
-  tenantId: string,
-  roleId?: any,
-  roleName?: any
+    tenantId: string,
+    roleId?: any,
+    roleName?: any
 ) => {
-  if (roleId) return Number(roleId);
+    if (roleId) return Number(roleId);
 
-  if (roleName && typeof roleName === 'string') {
-    const cleanRoleName = roleName.trim();
+    if (roleName && typeof roleName === 'string') {
+        const cleanRoleName = roleName.trim();
 
-    if (cleanRoleName) {
-      let role = await prisma.role.findFirst({
-        where: {
-          tenantId,
-          name: cleanRoleName,
-        },
-      });
+        if (cleanRoleName) {
+            let role = await prisma.role.findFirst({
+                where: {
+                    tenantId,
+                    name: cleanRoleName,
+                },
+            });
 
-      if (!role) {
-        role = await prisma.role.create({
-          data: {
-            tenantId,
-            name: cleanRoleName,
-            accessibleModules: '',
-          },
-        });
-      }
+            if (!role) {
+                role = await prisma.role.create({
+                    data: {
+                        tenantId,
+                        name: cleanRoleName,
+                        accessibleModules: '',
+                    },
+                });
+            }
 
-      return role.id;
+            return role.id;
+        }
     }
-  }
 
-  const defaultRole = await prisma.role.findFirst({
-    where: {
-      tenantId,
-      name: 'EMPLOYEE',
-    },
-  });
+    const defaultRole = await prisma.role.findFirst({
+        where: {
+            tenantId,
+            name: 'EMPLOYEE',
+        },
+    });
 
-  return defaultRole?.id || null;
+    return defaultRole?.id || null;
 };
 
 // UPDATED: get or create default company
 const getDefaultCompany = async (tenantId: string, tx: any) => {
-  let company = await tx.company.findFirst({
-    where: { tenantId },
-  });
-
-  if (!company) {
-    company = await tx.company.create({
-      data: {
-        tenantId,
-        legalName: 'Default Company',
-      },
+    let company = await tx.company.findFirst({
+        where: { tenantId },
     });
-  }
 
-  return company;
+    if (!company) {
+        company = await tx.company.create({
+            data: {
+                tenantId,
+                legalName: 'Default Company',
+            },
+        });
+    }
+
+    return company;
 };
 
 // UPDATED: auto-create department master
 const getOrCreateDepartmentId = async (
-  tenantId: string,
-  tx: any,
-  departmentId?: any,
-  departmentName?: any
+    tenantId: string,
+    tx: any,
+    departmentId?: any,
+    departmentName?: any
 ) => {
-  if (departmentId) return String(departmentId);
+    if (departmentId) return String(departmentId);
 
-  if (!departmentName || typeof departmentName !== 'string') return null;
+    if (!departmentName || typeof departmentName !== 'string') return null;
 
-  const cleanName = departmentName.trim();
-  if (!cleanName) return null;
+    const cleanName = departmentName.trim();
+    if (!cleanName) return null;
 
-  let department = await tx.department.findFirst({
-    where: {
-      tenantId,
-      name: cleanName,
-    },
-  });
-
-  if (!department) {
-    const company = await getDefaultCompany(tenantId, tx);
-
-    department = await tx.department.create({
-      data: {
-        tenantId,
-        companyId: company.id,
-        name: cleanName,
-      },
+    let department = await tx.department.findFirst({
+        where: {
+            tenantId,
+            name: cleanName,
+        },
     });
-  }
 
-  return department.id;
+    if (!department) {
+        const company = await getDefaultCompany(tenantId, tx);
+
+        department = await tx.department.create({
+            data: {
+                tenantId,
+                companyId: company.id,
+                name: cleanName,
+            },
+        });
+    }
+
+    return department.id;
 };
 
 // UPDATED: auto-create designation master
 const getOrCreateDesignationId = async (
-  tenantId: string,
-  tx: any,
-  designationId?: any,
-  designationName?: any
+    tenantId: string,
+    tx: any,
+    designationId?: any,
+    designationName?: any
 ) => {
-  if (designationId) return String(designationId);
+    if (designationId) return String(designationId);
 
-  if (!designationName || typeof designationName !== 'string') return null;
+    if (!designationName || typeof designationName !== 'string') return null;
 
-  const cleanTitle = designationName.trim();
-  if (!cleanTitle) return null;
+    const cleanTitle = designationName.trim();
+    if (!cleanTitle) return null;
 
-  let designation = await tx.designation.findFirst({
-    where: {
-      tenantId,
-      title: cleanTitle,
-    },
-  });
-
-  if (!designation) {
-    const company = await getDefaultCompany(tenantId, tx);
-
-    designation = await tx.designation.create({
-      data: {
-        tenantId,
-        companyId: company.id,
-        title: cleanTitle,
-      },
+    let designation = await tx.designation.findFirst({
+        where: {
+            tenantId,
+            title: cleanTitle,
+        },
     });
-  }
 
-  return designation.id;
+    if (!designation) {
+        const company = await getDefaultCompany(tenantId, tx);
+
+        designation = await tx.designation.create({
+            data: {
+                tenantId,
+                companyId: company.id,
+                title: cleanTitle,
+            },
+        });
+    }
+
+    return designation.id;
 };
 
 // Get all employees for the tenant
@@ -195,7 +195,7 @@ export const getAllEmployees = async (req: Request, res: Response) => {
             include: employeeInclude,
             orderBy: { createdAt: 'desc' }
         });
-                
+
 
         res.json(employees);
     } catch (error) {
@@ -211,8 +211,8 @@ export const createEmployee = async (req: Request, res: Response) => {
         if (!tenantId) return res.status(401).json({ message: 'Unauthorized' });
 
         const {
-            name, email, password, phone,role,roleId,
-            department, location, title ,departmentId,designationId,locationId,shiftId, joiningDate,
+            name, email, password, phone, role, roleId,
+            department, location, title, departmentId, designationId, locationId, shiftId, joiningDate,
             dob,
             address,
             bloodGroup,
@@ -239,15 +239,15 @@ export const createEmployee = async (req: Request, res: Response) => {
         const finalRoleId = await getOrCreateRoleId(tenantId, roleId, role);
 
         // NEW UPDATE: Convert salary values safely into numbers
-    const salaryData = {
-      basic: Number(salary?.basic || 0),
-      hra: Number(salary?.hra || 0),
-      special: Number(salary?.special || 0),
-      medical: Number(salary?.medical || 0),
-      pf: Number(salary?.pf || 0),
-      pt: Number(salary?.pt || 0),
-      tax: Number(salary?.tax || 0),
-    };
+        const salaryData = {
+            basic: Number(salary?.basic || 0),
+            hra: Number(salary?.hra || 0),
+            special: Number(salary?.special || 0),
+            medical: Number(salary?.medical || 0),
+            pf: Number(salary?.pf || 0),
+            pt: Number(salary?.pt || 0),
+            tax: Number(salary?.tax || 0),
+        };
 
         let targetRoleId = roleId;
         if (!targetRoleId) {
@@ -290,14 +290,14 @@ export const createEmployee = async (req: Request, res: Response) => {
                     userId: user.id,
                     tenantId,
                     phone,
-                    
+
                     department,
                     location,
                     title: title || role || 'Employee',
-                    
+
                     departmentId: finalDepartmentId,
                     designationId: finalDesignationId,
-                    
+
                     locationId: locationId || null,
                     shiftId: shiftId || null,
                     joiningDate: joiningDate ? new Date(joiningDate) : new Date(),
@@ -340,7 +340,7 @@ export const createEmployee = async (req: Request, res: Response) => {
             return user;
         });
 
-           const fullEmployee = await prisma.user.findFirst({
+        const fullEmployee = await prisma.user.findFirst({
             where: { id: newUser.id, tenantId },
             include: employeeInclude,
         });
@@ -409,26 +409,25 @@ export const getEmployee = async (req: Request, res: Response) => {
 export const updateEmployee = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
-       const userId = Number(id);
-       
+        const userId = Number(id);
+
         const {
             // User model
             name, email,
             // Profile model
-            phone, dob, bloodGroup, address,role,roleId,  location, department, title, status,
-            
+            phone, dob, bloodGroup, address, role, roleId, location, department, title, status,
+
             departmentId,
             designationId,
             locationId,
             shiftId,
-            
+
             // Statutory
             uan, pfNumber, esic, pan, aadhaar,
             // Bank
             bankName, accountNumber, ifsc,
-
-             // NEW UPDATE: Salary data from frontend
-            salary,
+            // Salary
+            salary
         } = req.body;
 
         const tenantId = (req as any).user?.tenantId;
@@ -444,45 +443,45 @@ export const updateEmployee = async (req: Request, res: Response) => {
         if (!existingEmployee) {
             return res.status(404).json({ message: 'Employee not found' });
         }
-        
-         const finalRoleId = await getOrCreateRoleId(tenantId, roleId, role);
 
-    // UPDATED: auto-create/find department and designation masters
-    const finalDepartmentId = await getOrCreateDepartmentId(
-      tenantId,
-      prisma,
-      departmentId,
-      department
-    );
+        const finalRoleId = await getOrCreateRoleId(tenantId, roleId, role);
 
-    const finalDesignationId = await getOrCreateDesignationId(
-      tenantId,
-      prisma,
-      designationId,
-      title || role
-    );
+        // UPDATED: auto-create/find department and designation masters
+        const finalDepartmentId = await getOrCreateDepartmentId(
+            tenantId,
+            prisma,
+            departmentId,
+            department
+        );
 
-    await prisma.user.update({
-      where: {
-        id:userId,
-      },
-      data: {
-        ...(name && { name }),
-        ...(email && { email }),
-        ...(finalRoleId && { roleId: finalRoleId }),
-      },
-    });
+        const finalDesignationId = await getOrCreateDesignationId(
+            tenantId,
+            prisma,
+            designationId,
+            title || role
+        );
 
-    // NEW UPDATE: Convert salary string values into numbers
-    const salaryData = {
-      basic: Number(salary?.basic || 0),
-      hra: Number(salary?.hra || 0),
-      special: Number(salary?.special || 0),
-      medical: Number(salary?.medical || 0),
-      pf: Number(salary?.pf || 0),
-      pt: Number(salary?.pt || 0),
-      tax: Number(salary?.tax || 0),
-    };
+        await prisma.user.update({
+            where: {
+                id: userId,
+            },
+            data: {
+                ...(name && { name }),
+                ...(email && { email }),
+                ...(finalRoleId && { roleId: finalRoleId }),
+            },
+        });
+
+        // NEW UPDATE: Convert salary string values into numbers
+        const salaryData = {
+            basic: Number(salary?.basic || 0),
+            hra: Number(salary?.hra || 0),
+            special: Number(salary?.special || 0),
+            medical: Number(salary?.medical || 0),
+            pf: Number(salary?.pf || 0),
+            pt: Number(salary?.pt || 0),
+            tax: Number(salary?.tax || 0),
+        };
 
 
         // Upsert Profile
@@ -492,7 +491,7 @@ export const updateEmployee = async (req: Request, res: Response) => {
                 userId: Number(id),
                 tenantId,
                 title, department, location, phone, status, dob: dob ? new Date(dob) : undefined, bloodGroup, address,
-                departmentId: finalDepartmentId ,
+                departmentId: finalDepartmentId,
                 designationId: finalDesignationId,
                 locationId: locationId || null,
                 shiftId: shiftId || null,
@@ -500,11 +499,27 @@ export const updateEmployee = async (req: Request, res: Response) => {
                     create: { uan, pfNumber, esic, pan, aadhaar }
                 },
                 bank: {
-                    create: { bankName, accountNumber, ifsc }
+                    create: {
+                        bankName: bankName || 'Not Provided',
+                        accountNumber: accountNumber || 'Not Provided',
+                        ifsc: ifsc || 'Not Provided'
+                    }
+                },
+
+                // UPDATED: create salary if profile did not exist
+                salary: {
+                    create: salaryData
                 }
             },
             update: {
                 title, department, location, phone, status, dob: dob ? new Date(dob) : undefined, bloodGroup, address,
+
+                // UPDATED: save selected master ids also while editing
+                departmentId: finalDepartmentId,
+                designationId: finalDesignationId,
+                locationId: locationId || null,
+                shiftId: shiftId || null,
+
                 statutory: {
                     upsert: {
                         create: { uan, pfNumber, esic, pan, aadhaar },
@@ -513,14 +528,26 @@ export const updateEmployee = async (req: Request, res: Response) => {
                 },
                 bank: {
                     upsert: {
-                        create: { bankName, accountNumber, ifsc },
-                        update: { bankName, accountNumber, ifsc }
+                        create: {
+                            bankName: bankName || 'Not Provided',
+                            accountNumber: accountNumber || 'Not Provided',
+                            ifsc: ifsc || 'Not Provided'
+                        },
+                        update: {
+                            bankName: bankName || 'Not Provided',
+                            accountNumber: accountNumber || 'Not Provided',
+                            ifsc: ifsc || 'Not Provided'
+                        }
+                    }
+                },
+
+                // UPDATED: this was missing, salary was not updating
+                salary: {
+                    upsert: {
+                        create: salaryData,
+                        update: salaryData
                     }
                 }
-            },
-            include: {
-                statutory: true,
-                bank: true
             }
         });
 
@@ -581,10 +608,10 @@ export const deleteEmployee = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
         const tenantId = (req as any).user?.tenantId;
- 
+
         if (!tenantId) return res.status(401).json({ message: 'Unauthorized' });
-        
-         const userId = Number(id);
+
+        const userId = Number(id);
 
         const employee = await prisma.user.findFirst({
             where: {
@@ -606,14 +633,15 @@ export const deleteEmployee = async (req: Request, res: Response) => {
         await prisma.$transaction(async (tx) => {
             // 0. Handle subordinates (nullify their managerId)
             await tx.user.updateMany({
-                where: { managerId: userId,
+                where: {
+                    managerId: userId,
                     tenantId,
-                 },
+                },
                 data: { managerId: null }
             });
 
             // 1. Delete dependent records (Bank, Statutory, Documents, Salary)
-          
+
             // UPDATED: Soft delete EmployeeProfile
             // No bank/statutory/document/salary records are deleted now
             await tx.employeeProfile.updateMany({
@@ -640,14 +668,14 @@ export const deleteEmployee = async (req: Request, res: Response) => {
                 },
             });
         });
- 
+
         res.json({ message: 'Employee and all associated records deleted successfully' });
     } catch (error) {
         console.error('Delete error:', error);
         res.status(500).json({ message: 'Server error' });
     }
 };
- 
+
 // Delete Document
 export const deleteDocument = async (req: Request, res: Response) => {
     try {
