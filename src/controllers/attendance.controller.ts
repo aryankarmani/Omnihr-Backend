@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { createNotification, notifyAdmins } from '../utils/notification';
+import { getManagerTeamMemberIds, isAdminOrManager } from "../utils/teamScope";
 
 const prisma = new PrismaClient();
 
@@ -373,11 +374,26 @@ export const getMyRegularizationRequests = async (req: AuthRequest, res: Respons
 export const getPendingRegularizations = async (req: AuthRequest, res: Response) => {
     try {
         const tenantId = req.user.tenantId;
+        const role = req.user.role;
+        const userId = req.user.id;
 
         if (!isAdmin(req.user)) {
             return res.status(403).json({
                 message: 'Only admin can view pending regularization requests',
             });
+        }
+        const whereClause: any = {
+            tenantId,
+            status: "PENDING",
+        };
+
+        // ✅ NEW: MANAGER scoped regularization requests
+        if (role === "MANAGER") {
+            const memberIds = await getManagerTeamMemberIds(tenantId, userId);
+
+            whereClause.userId = {
+                in: memberIds,
+            };
         }
 
         const requests = await prisma.attendanceRegularization.findMany({
@@ -422,7 +438,7 @@ export const approveRegularization = async (req: AuthRequest, res: Response) => 
         const approverId = req.user.id;
         const { id } = req.params;
 
-        if (!isAdmin(req.user)) {
+        if (!isAdminOrManager(req.user.role)) {
             return res.status(403).json({
                 message: 'Only admin can approve regularization requests',
             });
@@ -522,7 +538,7 @@ export const rejectRegularization = async (req: AuthRequest, res: Response) => {
         const { id } = req.params;
         const { reason } = req.body;
 
-        if (!isAdmin(req.user)) {
+       if (!isAdminOrManager(req.user.role)) {
             return res.status(403).json({
                 message: 'Only admin can reject regularization requests',
             });

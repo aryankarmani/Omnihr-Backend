@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { createNotification, notifyAdmins } from '../utils/notification';
+import { getManagerTeamMemberIds } from "../utils/teamScope";
 
 const prisma = new PrismaClient();
 
@@ -158,26 +159,39 @@ const getOrCreateDesignationId = async (
 export const getAllEmployees = async (req: Request, res: Response) => {
     try {
         const tenantId = (req as any).user?.tenantId;
+        const userId = (req as any).user?.id;
+        const role = (req as any).user?.role;
+
         if (!tenantId) return res.status(401).json({ message: 'Unauthorized' });
 
         const { departmentId } = req.query;
 
+        const whereClause: any = {
+            tenantId,
+            isActive: true,
+            deletedAt: null,
+            ...(departmentId
+                ? {
+                    employeeProfile: {
+                        departmentId: String(departmentId),
+                        isActive: true,
+                        deletedAt: null,
+                    },
+                }
+                : {}),
+        };
+
+        // ✅ NEW: MANAGER scoped employee list
+        if (role === "MANAGER") {
+            const memberIds = await getManagerTeamMemberIds(tenantId, userId);
+
+            whereClause.id = {
+                in: memberIds,
+            };
+        }
+
         const employees = await prisma.user.findMany({
-            where: {
-                tenantId,
-                isActive: true,
-                deletedAt: null,
-                ...(departmentId
-                    ? {
-                        employeeProfile: {
-                            departmentId: String(departmentId),
-                            isActive: true,
-                            deletedAt: null,
-                        },
-                    }
-                    : {})
-                ,
-            },
+            where: whereClause, 
             include: employeeInclude,
             orderBy: { createdAt: 'desc' }
         });
