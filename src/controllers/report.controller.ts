@@ -43,6 +43,13 @@ const calculateSalary = (salary: any): number => {
   );
 };
 
+const formatLocalDate = (date: Date): string => {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+};
+
 // UPDATED: Backend now works according to frontend dropdown period.
 
 const getReportRange = (periodQuery: any) => {
@@ -52,37 +59,44 @@ const getReportRange = (periodQuery: any) => {
   const period = String(periodQuery || "monthly");
 
   let firstDay: Date;
+  let lastDay: Date = new Date(today);
 
   if (period === "weekly") {
-    // Last 7 days including today
-    firstDay = new Date(today);
-    firstDay.setDate(today.getDate() - 6);
+    // Current week: Start from Monday of the current week
+    const day = today.getDay();
+    const diff = today.getDate() - day + (day === 0 ? -6 : 1);
+    firstDay = new Date(today.getFullYear(), today.getMonth(), diff);
+    firstDay.setHours(0, 0, 0, 0);
   } else if (period === "quarter") {
-    // Last 3 months
-    firstDay = new Date(today);
-    firstDay.setMonth(today.getMonth() - 2);
-    firstDay.setDate(1);
+    // Last 3 completed months (excluding current month)
+    firstDay = new Date(today.getFullYear(), today.getMonth() - 3, 1);
+    firstDay.setHours(0, 0, 0, 0);
+    lastDay = new Date(today.getFullYear(), today.getMonth(), 0);
+    lastDay.setHours(23, 59, 59, 999);
   } else if (period === "semi-annual") {
-    // Last 6 months
-    firstDay = new Date(today);
-    firstDay.setMonth(today.getMonth() - 5);
-    firstDay.setDate(1);
+    // Last 6 completed months (excluding current month)
+    firstDay = new Date(today.getFullYear(), today.getMonth() - 6, 1);
+    firstDay.setHours(0, 0, 0, 0);
+    lastDay = new Date(today.getFullYear(), today.getMonth(), 0);
+    lastDay.setHours(23, 59, 59, 999);
   } else if (period === "annual") {
-    // Current year
-    firstDay = new Date(today.getFullYear(), 0, 1);
+    // Last 12 completed months (excluding current month)
+    firstDay = new Date(today.getFullYear(), today.getMonth() - 12, 1);
+    firstDay.setHours(0, 0, 0, 0);
+    lastDay = new Date(today.getFullYear(), today.getMonth(), 0);
+    lastDay.setHours(23, 59, 59, 999);
   } else {
-    // Current month
+    // Current month (monthly)
     firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+    firstDay.setHours(0, 0, 0, 0);
   }
-
-  firstDay.setHours(0, 0, 0, 0);
 
   return {
     period,
-    startDate: firstDay.toISOString().split("T")[0],
-    endDate: today.toISOString().split("T")[0],
+    startDate: formatLocalDate(firstDay),
+    endDate: formatLocalDate(lastDay),
     firstDay,
-    today,
+    today: lastDay,
   };
 };
 
@@ -116,7 +130,7 @@ export const getDashboard = async (
 
     if (!tenantId) return;
 
-    const { period,startDate, endDate, today, firstDay } =  getReportRange(req.query.period);
+    const { period, startDate, endDate, today, firstDay } = getReportRange(req.query.period);
 
     const employees = await prisma.employeeProfile.findMany({
       where: {
@@ -137,6 +151,18 @@ export const getDashboard = async (
       return sum + calculateSalary(emp.salary);
     }, 0);
 
+    // Scale payroll based on selected period
+    let periodPayroll = totalPayroll;
+    if (period === "weekly") {
+      periodPayroll = Math.round(totalPayroll * (7 / 30));
+    } else if (period === "quarter") {
+      periodPayroll = totalPayroll * 3;
+    } else if (period === "semi-annual") {
+      periodPayroll = totalPayroll * 6;
+    } else if (period === "annual") {
+      periodPayroll = totalPayroll * 12;
+    }
+
     // ===== ATTENDANCE =====
     const attendanceRecords = await prisma.attendanceRecord.findMany({
       where: {
@@ -145,14 +171,14 @@ export const getDashboard = async (
           gte: startDate,
           lte: endDate,
         },
-         user: {
+        user: {
           isActive: true,
           deletedAt: null,
         },
       },
     });
 
-     const workingDays = getWorkingDays(firstDay, today);
+    const workingDays = getWorkingDays(firstDay, today);
 
     const expectedAttendance = workingDays * employees.length;
 
@@ -167,15 +193,20 @@ export const getDashboard = async (
         ? Math.round((presentCount / expectedAttendance) * 100)
         : 0;
 
+    // Filter pending leaves within the period
     const pendingLeaves = await prisma.leave.count({
       where: {
         tenantId,
         status: "PENDING",
+        startDate: {
+          gte: firstDay,
+          lte: today,
+        },
       },
     });
 
     return res.json({
-      totalPayroll,
+      totalPayroll: periodPayroll,
       avgAttendance,
       pendingLeaves,
 
@@ -210,6 +241,22 @@ export const getDashboard = async (
 
 
 // ================= ATTENDANCE =================
+// Helper to get month names list in range
+const getMonthsInRange = (start: Date, end: Date) => {
+  const months: string[] = [];
+  const cursor = new Date(start);
+  cursor.setDate(1);
+  while (cursor <= end) {
+    const monthName = cursor.toLocaleDateString("en-US", { month: "short" });
+    if (!months.includes(monthName)) {
+      months.push(monthName);
+    }
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  return months;
+};
+
+// ================= ATTENDANCE =================
 export const getAttendance = async (
   req: Request,
   res: Response
@@ -219,17 +266,16 @@ export const getAttendance = async (
 
     if (!tenantId) return;
 
-      const { period, startDate, endDate } = getReportRange(req.query.period);
+    const { period, startDate, endDate, firstDay, today } = getReportRange(req.query.period);
 
-    const records =
-      await prisma.attendanceRecord.findMany({
-        where: {
+    const records = await prisma.attendanceRecord.findMany({
+      where: {
         tenantId,
         date: {
           gte: startDate,
           lte: endDate,
         },
-         user: {
+        user: {
           isActive: true,
           deletedAt: null,
         },
@@ -244,48 +290,59 @@ export const getAttendance = async (
       { name: string; present: number; absent: number; late: number }
     > = {};
 
+    let orderedLabels: string[] = [];
+
+    // Pre-populate map based on period
+    if (period === "weekly") {
+      orderedLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+      orderedLabels.forEach((label) => {
+        map[label] = { name: label, present: 0, absent: 0, late: 0 };
+      });
+    } else if (period === "monthly") {
+      orderedLabels = ["Week 1", "Week 2", "Week 3", "Week 4", "Week 5"];
+      orderedLabels.forEach((label) => {
+        map[label] = { name: label, present: 0, absent: 0, late: 0 };
+      });
+    } else {
+      orderedLabels = getMonthsInRange(firstDay, today);
+      orderedLabels.forEach((label) => {
+        map[label] = { name: label, present: 0, absent: 0, late: 0 };
+      });
+    }
+
     records.forEach((record) => {
       const dateObj = new Date(record.date);
-
       let label = "";
 
-      // UPDATED: chart label changes by frontend selected period
       if (period === "weekly") {
-        label = dateObj.toLocaleDateString("en-US", {
-          weekday: "short",
-        });
+        const daysMap = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        label = daysMap[dateObj.getUTCDay()];
       } else if (period === "monthly") {
-        label = dateObj.toLocaleDateString("en-US", {
-          day: "2-digit",
-          month: "short",
-        });
+        const dayOfMonth = dateObj.getUTCDate();
+        if (dayOfMonth <= 7) label = "Week 1";
+        else if (dayOfMonth <= 14) label = "Week 2";
+        else if (dayOfMonth <= 21) label = "Week 3";
+        else if (dayOfMonth <= 28) label = "Week 4";
+        else label = "Week 5";
       } else {
         label = dateObj.toLocaleDateString("en-US", {
           month: "short",
+          timeZone: "UTC",
         });
       }
 
-      if (!map[label]) {
-        map[label] = {
-          name: label,
-          present: 0,
-          absent: 0,
-          late: 0,
-        };
-      }
-
-      const status = String(record.status).toUpperCase();
-
-      if (status === "PRESENT") {
-        map[label].present++;
-      } else if (status === "ABSENT") {
-        map[label].absent++;
-      } else if (status === "LATE") {
-        map[label].late++;
+      if (map[label]) {
+        const status = String(record.status).toUpperCase();
+        if (status === "PRESENT" || status === "LATE") {
+          map[label].present++;
+        } else if (status === "ABSENT") {
+          map[label].absent++;
+        }
       }
     });
 
-    return res.json(Object.values(map));
+    const result = orderedLabels.map((l) => map[l]);
+    return res.json(result);
   } catch (error) {
     console.error("Reports attendance error:", error);
 
@@ -304,7 +361,7 @@ export const getPayroll = async (
 
     if (!tenantId) return;
 
-    getReportRange(req.query.period);
+    const { period } = getReportRange(req.query.period);
 
     const employees = await prisma.employeeProfile.findMany({
       where: {
@@ -328,7 +385,6 @@ export const getPayroll = async (
        const department =
         emp.departmentRef?.name || emp.department || "Unknown";
 
-
        if (!departmentMap[department]) {
         departmentMap[department] = 0;
       }
@@ -336,10 +392,22 @@ export const getPayroll = async (
       departmentMap[department] += calculateSalary(emp.salary);
     });
 
+    // Scale values based on period
+    let multiplier = 1;
+    if (period === "weekly") {
+      multiplier = 7 / 30;
+    } else if (period === "quarter") {
+      multiplier = 3;
+    } else if (period === "semi-annual") {
+      multiplier = 6;
+    } else if (period === "annual") {
+      multiplier = 12;
+    }
+
     const result = Object.entries(departmentMap).map(
       ([name, value]) => ({
         name,
-        value
+        value: Math.round(value * multiplier)
       })
     );
 
@@ -457,6 +525,20 @@ export const exportSalaryRegister = async (
 
     if (!tenantId) return;
 
+    const { period } = getReportRange(req.query.period);
+
+    // Scale values based on period
+    let multiplier = 1;
+    if (period === "weekly") {
+      multiplier = 7 / 30;
+    } else if (period === "quarter") {
+      multiplier = 3;
+    } else if (period === "semi-annual") {
+      multiplier = 6;
+    } else if (period === "annual") {
+      multiplier = 12;
+    }
+
     const employees =
       await prisma.employeeProfile.findMany({
         where: {
@@ -475,22 +557,25 @@ export const exportSalaryRegister = async (
       },
     });
 
-    const formatted = employees.map((emp) => ({
+    const formatted = employees.map((emp) => {
+      const basic = emp.salary?.basic || 0;
+      const hra = emp.salary?.hra || 0;
+      const special = emp.salary?.special || 0;
+      const medical = emp.salary?.medical || 0;
+      const grossSalary = calculateSalary(emp.salary);
 
-      employeeId: emp.userId,
-
-      name: emp.user?.name || "",
-
-      email: emp.user?.email || "",
-
-      department: emp.departmentRef?.name || emp.department || "",
-      basic: emp.salary?.basic || 0,
-      hra: emp.salary?.hra || 0,
-      special: emp.salary?.special || 0,
-      medical: emp.salary?.medical || 0,
-      grossSalary: calculateSalary(emp.salary),
-
-    }));
+      return {
+        employeeId: emp.userId,
+        name: emp.user?.name || "",
+        email: emp.user?.email || "",
+        department: emp.departmentRef?.name || emp.department || "",
+        basic: Math.round(basic * multiplier),
+        hra: Math.round(hra * multiplier),
+        special: Math.round(special * multiplier),
+        medical: Math.round(medical * multiplier),
+        grossSalary: Math.round(grossSalary * multiplier),
+      };
+    });
 
     const parser = new Parser({
       fields: [
@@ -549,9 +634,15 @@ if (!tenantId) return;
 
 
 
+    const { firstDay, today } = getReportRange(req.query.period);
+
     const leaves = await prisma.leave.findMany({
        where: {
         tenantId,
+        startDate: {
+          gte: firstDay,
+          lte: today,
+        },
       },
       include: {
         user: true,
