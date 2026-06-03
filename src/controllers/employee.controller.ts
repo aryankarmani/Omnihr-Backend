@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { createNotification, notifyAdmins } from '../utils/notification';
 import { getManagerTeamMemberIds } from "../utils/teamScope";
 import bcrypt from "bcryptjs"; 
+import { sendMail } from "../utils/mail";
 
 const prisma = new PrismaClient();
 
@@ -31,30 +32,23 @@ const getOrCreateRoleId = async (
 ) => {
     if (roleId) return Number(roleId);
 
-    if (roleName && typeof roleName === 'string') {
-        const cleanRoleName = roleName.trim();
+    const cleanRoleName =
+        typeof roleName === "string" ? roleName.trim().toUpperCase() : "";
 
-        if (cleanRoleName) {
-            let role = await prisma.role.findFirst({
-                where: {
-                    tenantId,
-                    name: cleanRoleName,
-                },
-            });
+    // ✅ CHANGED: If frontend sends MANAGER, ignore it and use EMPLOYEE
+    const safeRoleName =
+        cleanRoleName === "MANAGER" || !cleanRoleName
+            ? "EMPLOYEE"
+            : cleanRoleName;
 
-            if (!role) {
-                role = await prisma.role.create({
-                    data: {
-                        tenantId,
-                        name: cleanRoleName,
-                        accessibleModules: '',
-                    },
-                });
-            }
+    const role = await prisma.role.findFirst({
+        where: {
+            tenantId,
+            name: safeRoleName,
+        },
+    });
 
-            return role.id;
-        }
-    }
+    if (role) return role.id;
 
     const defaultRole = await prisma.role.findFirst({
         where: {
@@ -182,10 +176,10 @@ export const getAllEmployees = async (req: Request, res: Response) => {
                 : {}),
         };
 
-        // ✅ NEW: MANAGER scoped employee list
-        if (role === "MANAGER") {
-            const memberIds = await getManagerTeamMemberIds(tenantId, userId);
+        // ✅ CHANGED: Manager is checked from Team.managerId, not role
+        const memberIds = await getManagerTeamMemberIds(tenantId, userId);
 
+        if (memberIds.length > 0 && role !== "HR_ADMIN" && role !== "ADMIN" && role !== "SYSTEM_ADMIN") {
             whereClause.id = {
                 in: memberIds,
             };
@@ -273,7 +267,7 @@ export const createEmployee = async (req: Request, res: Response) => {
                 tenantId,
                 tx,
                 designationId,
-                title || role
+                title || "Employee"
             );
 
             // ✅ ADDED: Hash password before saving user
@@ -302,7 +296,7 @@ export const createEmployee = async (req: Request, res: Response) => {
 
                     department,
                     location,
-                    title: title || role || 'Employee',
+                    title: title || 'Employee',
 
                     departmentId: finalDepartmentId,
                     designationId: finalDesignationId,
@@ -393,6 +387,23 @@ export const createEmployee = async (req: Request, res: Response) => {
             message: `${name} has been added as ${title || role || 'Employee'}.`,
             type: 'employee',
         });
+
+        // ✅ ADDED: Send welcome email to new employee
+        try {
+            await sendMail({
+                to: email,
+                subject: "Welcome to EnCalm HRMS",
+                html: `
+            <h2>Welcome ${name}</h2>
+            <p>Your employee account has been created in EnCalm HRMS.</p>
+            <p><b>Email:</b> ${email}</p>
+            <p><b>Temporary Password:</b> ${password || "Welcome@123"}</p>
+            <p>Please login and change your password.</p>
+        `,
+            });
+        } catch (mailError) {
+            console.log("Employee created but email failed:", mailError);
+        }
 
         res.status(201).json(fullEmployee);
     } catch (error: any) {
@@ -492,7 +503,7 @@ export const updateEmployee = async (req: Request, res: Response) => {
             tenantId,
             prisma,
             designationId,
-            title || role
+           title || "Employee"
         );
 
         await prisma.user.update({
