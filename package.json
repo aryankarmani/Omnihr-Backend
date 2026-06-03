@@ -27,15 +27,16 @@
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
-    "exceljs": "^4.4.0",
+    "exceljs": "^3.4.0",
     "express": "^4.18.2",
     "json2csv": "^6.0.0-alpha.2",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.1.1",
+    "nodemailer": "^8.0.10",
     "nodemon": "^3.0.3",
     "pdfkit": "^0.18.0",
     "prisma": "^5.10.0",
-    "status": "^0.0.13",
+    "status": "^0.0.6",
     "typescript": "^5.3.3"
   },
   "devDependencies": {
@@ -45,6 +46,7 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.1.0",
     "@types/node": "^25.9.1",
+    "@types/nodemailer": "^8.0.0",
     "ts-node": "^10.9.2"
   },
   "prisma": {

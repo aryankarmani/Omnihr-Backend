@@ -22,10 +22,21 @@ export const getManagerTeamMemberIds = async (
 
 // ✅ NEW: Check if logged-in user is admin
 export const isAdminRole = (role?: string) => {
-  return ["HR_ADMIN", "ADMIN", "SYSTEM_ADMIN"].includes(role || "");
+  return ["HR_ADMIN", "ADMIN", "SYSTEM_ADMIN", "MANAGER"].includes(role || "");
+};
+// ✅ CHANGED: do not check MANAGER role anymore
+export const isUserTeamManager = async (tenantId: string, userId: number) => {
+  const count = await prisma.team.count({
+    where: {
+      tenantId,
+      managerId: userId,
+    },
+  });
+
+  return count > 0;
 };
 
-// ✅ NEW: Admin OR manager allowed
+// ✅ ADDED BACK: used by attendance.controller.ts
 export const isAdminOrManager = (role?: string) => {
   return ["HR_ADMIN", "ADMIN", "SYSTEM_ADMIN", "MANAGER"].includes(role || "");
 };
