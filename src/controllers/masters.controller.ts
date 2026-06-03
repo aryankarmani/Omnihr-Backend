@@ -337,7 +337,12 @@ export const getRoles = async (req: Request, res: Response) => {
     try {
         const { tenantId } = req.user as any;
         const roles = await prisma.role.findMany({
-            where: { tenantId },
+            where: {
+                tenantId,
+                NOT: {
+                    name: "MANAGER",
+                },
+            },
             include: { permissions: true }
         });
         res.json(roles);
@@ -351,6 +356,13 @@ export const createRole = async (req: Request, res: Response) => {
     try {
         const { tenantId } = req.user as any;
         const { name, permissionIds = [], accessibleModules = "" } = req.body;
+
+        // ✅ CHANGED: Manager role should not be created from Masters
+        if (String(name).trim().toUpperCase() === "MANAGER") {
+            return res.status(400).json({
+                error: "MANAGER role is not allowed. Manager access is handled from Team Access Control.",
+            });
+        }
 
         const role = await prisma.role.create({
             data: {
