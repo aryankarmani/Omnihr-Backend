@@ -319,14 +319,15 @@ model BankDetails {
 }
 
 model Document {
-  id        Int             @id @default(autoincrement())
-  profileId Int
-  profile   EmployeeProfile @relation(fields: [profileId], references: [id])
+  id           Int             @id @default(autoincrement())
+  profileId    Int
+  profile      EmployeeProfile @relation(fields: [profileId], references: [id])
 
-  name       String
-  url        String
-  type       String?
-  uploadedAt DateTime @default(now())
+  name         String
+  url          String
+  type         String?
+  originalName String?
+  uploadedAt   DateTime @default(now())
 }
 
 model SalaryStructure {
