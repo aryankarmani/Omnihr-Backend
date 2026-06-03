@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { createNotification, notifyAdmins } from '../utils/notification';
 import { getManagerTeamMemberIds } from "../utils/teamScope";
+import bcrypt from "bcryptjs"; 
 
 const prisma = new PrismaClient();
 
@@ -275,14 +276,20 @@ export const createEmployee = async (req: Request, res: Response) => {
                 title || role
             );
 
+            // ✅ ADDED: Hash password before saving user
+            const plainPassword = password || "Welcome@123";
+            const hashedPassword = await bcrypt.hash(plainPassword, 10);
+
             // 1. Create User
             const user = await tx.user.create({
                 data: {
                     name,
                     email,
-                    password: password || 'Welcome@123', // Default password
+                   password: hashedPassword, // Default password
                     tenantId,
-                    roleId: finalRoleId
+                    roleId: finalRoleId,
+                    isActive: true, // ✅ ADDED: ensure login query can find user
+                    deletedAt: null,
                 }
             });
 
@@ -309,6 +316,9 @@ export const createEmployee = async (req: Request, res: Response) => {
                     dob: dob ? new Date(dob) : null,
                     address: address || null,
                     bloodGroup: bloodGroup || null,
+
+                    isActive: true, // ✅ ADDED
+                    deletedAt: null,
 
                     // NEW UPDATE: Create Salary Structure while onboarding
                     salary: {
@@ -522,11 +532,27 @@ export const updateEmployee = async (req: Request, res: Response) => {
                     create: { uan, pfNumber, esic, pan, aadhaar }
                 },
                 bank: {
-                    create: { bankName, accountNumber, ifsc }
+                    create: {
+                        bankName: bankName || 'Not Provided',
+                        accountNumber: accountNumber || 'Not Provided',
+                        ifsc: ifsc || 'Not Provided'
+                    }
+                },
+
+                // UPDATED: create salary if profile did not exist
+                salary: {
+                    create: salaryData
                 }
             },
             update: {
                 title, department, location, phone, status, dob: dob ? new Date(dob) : undefined, bloodGroup, address,
+
+                // UPDATED: save selected master ids also while editing
+                departmentId: finalDepartmentId,
+                designationId: finalDesignationId,
+                locationId: locationId || null,
+                shiftId: shiftId || null,
+
                 statutory: {
                     upsert: {
                         create: { uan, pfNumber, esic, pan, aadhaar },
@@ -535,14 +561,26 @@ export const updateEmployee = async (req: Request, res: Response) => {
                 },
                 bank: {
                     upsert: {
-                        create: { bankName, accountNumber, ifsc },
-                        update: { bankName, accountNumber, ifsc }
+                        create: {
+                            bankName: bankName || 'Not Provided',
+                            accountNumber: accountNumber || 'Not Provided',
+                            ifsc: ifsc || 'Not Provided'
+                        },
+                        update: {
+                            bankName: bankName || 'Not Provided',
+                            accountNumber: accountNumber || 'Not Provided',
+                            ifsc: ifsc || 'Not Provided'
+                        }
+                    }
+                },
+
+                // UPDATED: this was missing, salary was not updating
+                salary: {
+                    upsert: {
+                        create: salaryData,
+                        update: salaryData
                     }
                 }
-            },
-            include: {
-                statutory: true,
-                bank: true
             }
         });
 

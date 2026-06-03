@@ -483,10 +483,10 @@ export const addMembers = async (req: AuthRequest, res: Response) => {
             throw new Error("Manager not found in this tenant");
           }
 
-        // await tx.team.update({
-        //   where: { id: teamId },
-        //   data: { managerId: newManagerId },
-        // });
+        await tx.team.update({
+          where: { id: teamId },
+          data: { managerId: newManagerId },
+        });
 
         // await tx.user.update({
         //   where: { id: newManagerId },
