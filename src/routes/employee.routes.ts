@@ -3,6 +3,7 @@ import { getEmployee, updateEmployee, addDocument, deleteDocument, getAllEmploye
 import { authenticate } from '../middleware/auth'; // Assuming auth middleware exists
 import { upload } from '../middleware/upload';
 
+
 const router = Router();
 
 router.get('/', authenticate, getAllEmployees);

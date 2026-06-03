@@ -10,11 +10,6 @@ import {
   exportLeaveBalance,
   exportSalaryRegister,
 
-  createAttendance,
-  createLeave,
-  createEmployeeProfile,
-  createSalary
-
 } from "../controllers/report.controller";
 
 const router = Router();
@@ -59,31 +54,31 @@ router.get(
   exportLeaveBalance
 );
 
-// ================= TEST APIs =================
+// // ================= TEST APIs =================
 
-// Attendance
-router.post(
-  "/test/attendance",
-  createAttendance
-);
+// // Attendance
+// router.post(
+//   "/test/attendance",
+//   createAttendance
+// );
 
-// Leave
-router.post(
-  "/test/leave",
-  createLeave
-);
+// // Leave
+// router.post(
+//   "/test/leave",
+//   createLeave
+// );
 
-// Employee
-router.post(
-  "/test/employee",
-  createEmployeeProfile
-);
+// // Employee
+// router.post(
+//   "/test/employee",
+//   createEmployeeProfile
+// );
 
-// Salary
-router.post(
-  "/test/salary",
-  createSalary
-);
+// // Salary
+// router.post(
+//   "/test/salary",
+//   createSalary
+// );
 
 export default router;
 
