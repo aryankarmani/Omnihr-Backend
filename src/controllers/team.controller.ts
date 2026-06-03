@@ -510,7 +510,7 @@ export const addMembers = async (req: AuthRequest, res: Response) => {
       } else {
         await tx.team.update({
           where: { id: teamId },
-          data: { managerId: null },
+          data: { managerId: newManagerId },
         });
       }}
 

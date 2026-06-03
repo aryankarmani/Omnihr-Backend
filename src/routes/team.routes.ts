@@ -15,13 +15,17 @@ import { authenticate } from "../middleware/auth";
 
 const router = express.Router();
 
+router.use(authenticate);
+
+// ✅ NEW: logged-in manager access API
+router.get("/me/manager-access", authenticate, getMyManagerAccess);
+
 router.get("/", authenticate, getTeams);
 router.post("/", authenticate, createTeam);
 router.patch("/:teamId", authenticate, updateTeam);
 router.delete("/:teamId", authenticate, deleteTeam);
 
-// ✅ NEW: logged-in manager access API
-router.get("/me/manager-access", authenticate, getMyManagerAccess);
+
 
 // ✅ NEW: Team Access Control APIs
 router.get("/:teamId/access-control", authenticate, getTeamAccessControl);
