@@ -351,7 +351,7 @@ export const createEmployee = async (req: Request, res: Response) => {
                             data: {
                                 profileId: profile.id,
                                 name: fieldName === 'aadhaar' ? 'Aadhaar Card' : fieldName === 'pan' ? 'PAN Card' : 'Highest Qualification Degree',
-                                url: `/uploads/${file.filename}`,
+                                url: file.filename,
                                 type: file.mimetype
                             }
                         }));
@@ -602,7 +602,7 @@ export const addDocument = async (req: Request, res: Response) => {
             data: {
                 profileId: profile.id,
                 name,
-                url: `/uploads/${file.filename}`,
+                url: file.filename,
                 type
             }
         });
