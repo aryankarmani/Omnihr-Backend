@@ -3,7 +3,7 @@ import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import jwt  from "jsonwebtoken";
 import crypto from "crypto";
-
+import { sendMail } from "../utils/mail"; // ✅ ADDED
 
 const prisma = new PrismaClient();
 
@@ -285,6 +285,182 @@ export const logout = async (req: Request, res: Response) => {
     console.error("Logout error:", error);
     return res.status(500).json({
       message: "Server error",
+      details: error.message,
+    });
+  }
+};
+
+// ✅ ADDED: Send OTP for forgot password
+export const sendOtp = async (req: Request, res: Response) => {
+  try {
+    const email = req.body.email?.toLowerCase().trim();
+
+    if (!email) {
+      return res.status(400).json({
+        message: "Email is required",
+      });
+    }
+
+    const user = await prisma.user.findFirst({
+      where: {
+        email,
+        isActive: true,
+        deletedAt: null,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        message: "No active user found with this email",
+      });
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+    const expiresAt = new Date();
+    expiresAt.setMinutes(expiresAt.getMinutes() + 10);
+
+    await prisma.otp.deleteMany({
+      where: { email },
+    });
+
+    await prisma.otp.create({
+      data: {
+        email,
+        code: otp,
+        expiresAt,
+      },
+    });
+
+    await sendMail({
+      to: email,
+      subject: "Your EnCalm HRMS OTP",
+      html: `
+        <h2>Password Reset OTP</h2>
+        <p>Your OTP is:</p>
+        <h1>${otp}</h1>
+        <p>This OTP is valid for 10 minutes.</p>
+      `,
+      text: `Your EnCalm HRMS OTP is ${otp}. It is valid for 10 minutes.`,
+    });
+
+    return res.json({
+      message: "OTP sent successfully",
+    });
+  } catch (error: any) {
+    console.error("Send OTP error:", error);
+    return res.status(500).json({
+      message: "Failed to send OTP",
+      details: error.message,
+    });
+  }
+};
+
+// ✅ ADDED: Optional OTP verification route
+export const verifyOtp = async (req: Request, res: Response) => {
+  try {
+    const email = req.body.email?.toLowerCase().trim();
+    const { otp } = req.body;
+
+    if (!email || !otp) {
+      return res.status(400).json({
+        message: "Email and OTP are required",
+      });
+    }
+
+    const record = await prisma.otp.findFirst({
+      where: {
+        email,
+        code: otp,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    if (!record) {
+      return res.status(400).json({
+        message: "Invalid OTP",
+      });
+    }
+
+    if (record.expiresAt < new Date()) {
+      return res.status(400).json({
+        message: "OTP expired",
+      });
+    }
+
+    return res.json({
+      message: "OTP verified successfully",
+    });
+  } catch (error: any) {
+    console.error("Verify OTP error:", error);
+    return res.status(500).json({
+      message: "Failed to verify OTP",
+      details: error.message,
+    });
+  }
+};
+
+// ✅ ADDED: Reset password using OTP
+// ✅ CHANGED: matches ForgotPassword.tsx which sends { email, password, otp }
+export const resetPassword = async (req: Request, res: Response) => {
+  try {
+    const email = req.body.email?.toLowerCase().trim();
+    const { otp, password } = req.body;
+
+    if (!email || !otp || !password) {
+      return res.status(400).json({
+        message: "Email, OTP and password are required",
+      });
+    }
+
+    const record = await prisma.otp.findFirst({
+      where: {
+        email,
+        code: otp,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    if (!record) {
+      return res.status(400).json({
+        message: "Invalid OTP",
+      });
+    }
+
+    if (record.expiresAt < new Date()) {
+      return res.status(400).json({
+        message: "OTP expired",
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    await prisma.user.updateMany({
+      where: {
+        email,
+        isActive: true,
+        deletedAt: null,
+      },
+      data: {
+        password: hashedPassword,
+      },
+    });
+
+    await prisma.otp.deleteMany({
+      where: { email },
+    });
+
+    return res.json({
+      message: "Password reset successfully",
+    });
+  } catch (error: any) {
+    console.error("Reset password error:", error);
+    return res.status(500).json({
+      message: "Failed to reset password",
       details: error.message,
     });
   }

@@ -14,6 +14,28 @@ const isAdmin = (user: any) => {
     return ['HR_ADMIN', 'ADMIN', 'SYSTEM_ADMIN'].includes(user?.role);
 };
 
+// ✅ ADDED: HR Admin can access everyone,
+// Team Manager can access only their own team members
+const canAccessEmployeeRegularization = async (
+    tenantId: string,
+    loggedInUser: any,
+    targetUserId: number
+): Promise<boolean> => {
+
+    // HR Admin can access all employees
+    if (isAdmin(loggedInUser)) {
+        return true;
+    }
+
+    // Team manager can access only team members
+    const memberIds = await getManagerTeamMemberIds(
+        tenantId,
+        loggedInUser.id
+    );
+
+    return memberIds.includes(targetUserId);
+};
+
 // UPDATED: Calculate attendance status from proposed in/out time
 const calculateRegularizedStatus = (inTime?: Date | null, outTime?: Date | null) => {
     if (!inTime || !outTime) return { status: 'Absent', hours: 0 };
@@ -370,26 +392,25 @@ export const getMyRegularizationRequests = async (req: AuthRequest, res: Respons
     }
 };
 
-// UPDATED: 3. Admin fetches all pending regularization requests
 export const getPendingRegularizations = async (req: AuthRequest, res: Response) => {
     try {
         const tenantId = req.user.tenantId;
-        const role = req.user.role;
         const userId = req.user.id;
 
-        if (!isAdmin(req.user)) {
-            return res.status(403).json({
-                message: 'Only admin can view pending regularization requests',
-            });
-        }
         const whereClause: any = {
             tenantId,
             status: "PENDING",
         };
 
-        // ✅ NEW: MANAGER scoped regularization requests
-        if (role === "MANAGER") {
+        // ✅ CHANGED: HR admin sees all, manager sees only own team
+        if (!isAdmin(req.user)) {
             const memberIds = await getManagerTeamMemberIds(tenantId, userId);
+
+            if (memberIds.length === 0) {
+                return res.status(403).json({
+                    message: "Only admin or team manager can view pending regularization requests",
+                });
+            }
 
             whereClause.userId = {
                 in: memberIds,
@@ -397,10 +418,8 @@ export const getPendingRegularizations = async (req: AuthRequest, res: Response)
         }
 
         const requests = await prisma.attendanceRegularization.findMany({
-            where: {
-                tenantId,
-                status: 'PENDING',
-            },
+            // ✅ CHANGED: use whereClause
+            where: whereClause,
             include: {
                 user: {
                     select: {
@@ -418,14 +437,14 @@ export const getPendingRegularizations = async (req: AuthRequest, res: Response)
                 },
             },
             orderBy: {
-                createdAt: 'desc',
+                createdAt: "desc",
             },
         });
 
         res.json(requests);
     } catch (error: any) {
         res.status(500).json({
-            message: 'Error fetching pending regularization requests',
+            message: "Error fetching pending regularization requests",
             error: error.message,
         });
     }
@@ -438,17 +457,11 @@ export const approveRegularization = async (req: AuthRequest, res: Response) => 
         const approverId = req.user.id;
         const { id } = req.params;
 
-        if (!isAdminOrManager(req.user.role)) {
-            return res.status(403).json({
-                message: 'Only admin can approve regularization requests',
-            });
-        }
-
         const request = await prisma.attendanceRegularization.findFirst({
             where: {
                 id: Number(id),
                 tenantId,
-                status: 'PENDING',
+                status: "PENDING",
             },
             include: {
                 user: true,
@@ -457,7 +470,20 @@ export const approveRegularization = async (req: AuthRequest, res: Response) => 
 
         if (!request) {
             return res.status(404).json({
-                message: 'Pending regularization request not found',
+                message: "Pending regularization request not found",
+            });
+        }
+
+        // ✅ CHANGED: HR admin can approve all, manager only own team
+        const allowed = await canAccessEmployeeRegularization(
+            tenantId,
+            req.user,
+            request.userId
+        );
+
+        if (!allowed) {
+            return res.status(403).json({
+                message: "You can approve only your team member regularization requests",
             });
         }
 
@@ -467,7 +493,6 @@ export const approveRegularization = async (req: AuthRequest, res: Response) => 
         );
 
         const result = await prisma.$transaction(async (tx) => {
-            // UPDATED: Upsert attendance record for that user/date
             const attendance = await tx.attendanceRecord.upsert({
                 where: {
                     userId_date: {
@@ -492,13 +517,12 @@ export const approveRegularization = async (req: AuthRequest, res: Response) => 
                 },
             });
 
-            // UPDATED: Mark request approved
             const updatedRequest = await tx.attendanceRegularization.update({
                 where: {
                     id: request.id,
                 },
                 data: {
-                    status: 'APPROVED',
+                    status: "APPROVED",
                     approvedAt: new Date(),
                     approverId,
                     attendanceRecordId: attendance.id,
@@ -508,23 +532,22 @@ export const approveRegularization = async (req: AuthRequest, res: Response) => 
             return { attendance, updatedRequest };
         });
 
-        // UPDATED: Notify employee after approval
         await createNotification({
             tenantId,
             userId: request.userId,
-            title: 'Attendance Correction Approved',
+            title: "Attendance Correction Approved",
             message: `Your attendance correction for ${request.date} has been approved.`,
-            type: 'attendance',
+            type: "attendance",
         });
 
         res.json({
-            message: 'Regularization approved and attendance updated successfully',
+            message: "Regularization approved and attendance updated successfully",
             ...result,
         });
     } catch (error: any) {
-        console.error('Approve regularization error:', error);
+        console.error("Approve regularization error:", error);
         res.status(500).json({
-            message: 'Error approving regularization request',
+            message: "Error approving regularization request",
             error: error.message,
         });
     }
@@ -538,23 +561,30 @@ export const rejectRegularization = async (req: AuthRequest, res: Response) => {
         const { id } = req.params;
         const { reason } = req.body;
 
-       if (!isAdminOrManager(req.user.role)) {
-            return res.status(403).json({
-                message: 'Only admin can reject regularization requests',
-            });
-        }
-
         const request = await prisma.attendanceRegularization.findFirst({
             where: {
                 id: Number(id),
                 tenantId,
-                status: 'PENDING',
+                status: "PENDING",
             },
         });
 
         if (!request) {
             return res.status(404).json({
-                message: 'Pending regularization request not found',
+                message: "Pending regularization request not found",
+            });
+        }
+
+        // ✅ CHANGED: HR admin can reject all, manager only own team
+        const allowed = await canAccessEmployeeRegularization(
+            tenantId,
+            req.user,
+            request.userId
+        );
+
+        if (!allowed) {
+            return res.status(403).json({
+                message: "You can reject only your team member regularization requests",
             });
         }
 
@@ -563,30 +593,29 @@ export const rejectRegularization = async (req: AuthRequest, res: Response) => {
                 id: request.id,
             },
             data: {
-                status: 'REJECTED',
+                status: "REJECTED",
                 rejectedAt: new Date(),
                 approverId,
-                approverComment: reason || 'Rejected by admin',
+                approverComment: reason || "Rejected",
             },
         });
 
-        // UPDATED: Notify employee after rejection
         await createNotification({
             tenantId,
             userId: request.userId,
-            title: 'Attendance Correction Rejected',
-            message: `Your attendance correction for ${request.date} was rejected. Reason: ${reason || 'No reason provided'}`,
-            type: 'attendance',
+            title: "Attendance Correction Rejected",
+            message: `Your attendance correction for ${request.date} was rejected. Reason: ${reason || "No reason provided"}`,
+            type: "attendance",
         });
 
         res.json({
-            message: 'Regularization request rejected successfully',
+            message: "Regularization request rejected successfully",
             request: updatedRequest,
         });
     } catch (error: any) {
-        console.error('Reject regularization error:', error);
+        console.error("Reject regularization error:", error);
         res.status(500).json({
-            message: 'Error rejecting regularization request',
+            message: "Error rejecting regularization request",
             error: error.message,
         });
     }
@@ -603,6 +632,18 @@ export const forceRegularizeAttendance = async (req: AuthRequest, res: Response)
                 message: 'Only admin can directly regularize attendance',
             });
         }
+        // ✅ ADDED: check whether logged-in user can access target employee
+        const canAccessEmployeeRegularization = async (
+            tenantId: string,
+            loggedInUser: any,
+            targetUserId: number
+        ) => {
+            if (isAdmin(loggedInUser)) return true;
+
+            const memberIds = await getManagerTeamMemberIds(tenantId, loggedInUser.id);
+
+            return memberIds.includes(targetUserId);
+        };
 
         const {
             employeeId,
