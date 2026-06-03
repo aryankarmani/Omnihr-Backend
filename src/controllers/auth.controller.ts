@@ -137,7 +137,8 @@ export const login = async (req: Request, res: Response) => {
   try {
     
     
-    const { email, password } = req.body;
+    const email = req.body.email?.toLowerCase().trim();
+    const password = req.body.password;
 
     if (!email || !password) {
       return res.status(400).json({
