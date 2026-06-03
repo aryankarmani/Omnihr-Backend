@@ -43,21 +43,68 @@ const calculateSalary = (salary: any): number => {
   );
 };
 
-const getMonthRange = () => {
+// UPDATED: Backend now works according to frontend dropdown period.
+
+const getReportRange = (periodQuery: any) => {
   const today = new Date();
+  today.setHours(23, 59, 59, 999);
 
-  const firstDay = new Date(
-    today.getFullYear(),
-    today.getMonth(),
-    1
-  );
+  const period = String(periodQuery || "monthly");
 
-  const startDate = firstDay.toISOString().split("T")[0];
-  const endDate = today.toISOString().split("T")[0];
+  let firstDay: Date;
 
-  return { startDate, endDate, today, firstDay };
+  if (period === "weekly") {
+    // Last 7 days including today
+    firstDay = new Date(today);
+    firstDay.setDate(today.getDate() - 6);
+  } else if (period === "quarter") {
+    // Last 3 months
+    firstDay = new Date(today);
+    firstDay.setMonth(today.getMonth() - 2);
+    firstDay.setDate(1);
+  } else if (period === "semi-annual") {
+    // Last 6 months
+    firstDay = new Date(today);
+    firstDay.setMonth(today.getMonth() - 5);
+    firstDay.setDate(1);
+  } else if (period === "annual") {
+    // Current year
+    firstDay = new Date(today.getFullYear(), 0, 1);
+  } else {
+    // Current month
+    firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+  }
+
+  firstDay.setHours(0, 0, 0, 0);
+
+  return {
+    period,
+    startDate: firstDay.toISOString().split("T")[0],
+    endDate: today.toISOString().split("T")[0],
+    firstDay,
+    today,
+  };
 };
 
+// ================= WORKING DAYS HELPER =================
+
+const getWorkingDays = (start: Date, end: Date) => {
+  let count = 0;
+  const cursor = new Date(start);
+
+  while (cursor <= end) {
+    const day = cursor.getDay();
+
+    // Skip Sunday and Saturday
+    if (day !== 0 && day !== 6) {
+      count++;
+    }
+
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return count;
+};
 
 // ================= DASHBOARD =================
 export const getDashboard = async (
@@ -69,7 +116,7 @@ export const getDashboard = async (
 
     if (!tenantId) return;
 
-    const { startDate, endDate, today, firstDay } = getMonthRange();
+    const { period,startDate, endDate, today, firstDay } =  getReportRange(req.query.period);
 
     const employees = await prisma.employeeProfile.findMany({
       where: {
@@ -98,25 +145,16 @@ export const getDashboard = async (
           gte: startDate,
           lte: endDate,
         },
+         user: {
+          isActive: true,
+          deletedAt: null,
+        },
       },
     });
 
-    let workingDaysElapsed = 0;
-    const cursor = new Date(firstDay);
+     const workingDays = getWorkingDays(firstDay, today);
 
-    while (cursor <= today) {
-      const day = cursor.getDay();
-
-      // Monday to Friday only
-      if (day !== 0 && day !== 6) {
-        workingDaysElapsed++;
-      }
-
-      cursor.setDate(cursor.getDate() + 1);
-    }
-
-    const totalExpectedAttendance =
-      workingDaysElapsed * employees.length;
+    const expectedAttendance = workingDays * employees.length;
 
     const presentCount = attendanceRecords.filter((record) => {
       const status = String(record.status).toUpperCase();
@@ -125,26 +163,37 @@ export const getDashboard = async (
     }).length;
 
     const avgAttendance =
-      totalExpectedAttendance > 0
-        ? Math.round((presentCount / totalExpectedAttendance) * 100)
+      expectedAttendance > 0
+        ? Math.round((presentCount / expectedAttendance) * 100)
         : 0;
 
     const pendingLeaves = await prisma.leave.count({
       where: {
         tenantId,
-        status: {
-          equals: "PENDING",
-        },
+        status: "PENDING",
       },
     });
 
     return res.json({
       totalPayroll,
-      payrollGrowth: "+5%",
       avgAttendance,
+      pendingLeaves,
+
+      // UPDATED: text according to selected period
+      payrollGrowth:
+        period === "weekly"
+          ? "+5% this week"
+          : period === "monthly"
+          ? "+5% this month"
+          : period === "quarter"
+          ? "+5% this quarter"
+          : period === "semi-annual"
+          ? "+5% in 6 months"
+          : "+5% this year",
+
       attendanceTrend:
         avgAttendance >= 75 ? "Good attendance" : "Needs attention",
-      pendingLeaves,
+
       leaveStatus:
         pendingLeaves > 0
           ? `${pendingLeaves} awaiting approval`
@@ -170,7 +219,7 @@ export const getAttendance = async (
 
     if (!tenantId) return;
 
-    const { startDate, endDate } = getMonthRange();
+      const { period, startDate, endDate } = getReportRange(req.query.period);
 
     const records =
       await prisma.attendanceRecord.findMany({
@@ -180,42 +229,63 @@ export const getAttendance = async (
           gte: startDate,
           lte: endDate,
         },
+         user: {
+          isActive: true,
+          deletedAt: null,
+        },
       },
       orderBy: {
         date: "asc",
       },
     });
 
-    const dayMap: Record<
+    const map: Record<
       string,
       { name: string; present: number; absent: number; late: number }
-    > = {
-      Mon: { name: "Mon", present: 0, absent: 0, late: 0 },
-      Tue: { name: "Tue", present: 0, absent: 0, late: 0 },
-      Wed: { name: "Wed", present: 0, absent: 0, late: 0 },
-      Thu: { name: "Thu", present: 0, absent: 0, late: 0 },
-      Fri: { name: "Fri", present: 0, absent: 0, late: 0 },
-      Sat: { name: "Sat", present: 0, absent: 0, late: 0 },
-      Sun: { name: "Sun", present: 0, absent: 0, late: 0 },
-    };
+    > = {};
 
     records.forEach((record) => {
-      const day = new Date(record.date).toLocaleDateString("en-US", {
-        weekday: "short",
-      });
+      const dateObj = new Date(record.date);
+
+      let label = "";
+
+      // UPDATED: chart label changes by frontend selected period
+      if (period === "weekly") {
+        label = dateObj.toLocaleDateString("en-US", {
+          weekday: "short",
+        });
+      } else if (period === "monthly") {
+        label = dateObj.toLocaleDateString("en-US", {
+          day: "2-digit",
+          month: "short",
+        });
+      } else {
+        label = dateObj.toLocaleDateString("en-US", {
+          month: "short",
+        });
+      }
+
+      if (!map[label]) {
+        map[label] = {
+          name: label,
+          present: 0,
+          absent: 0,
+          late: 0,
+        };
+      }
 
       const status = String(record.status).toUpperCase();
 
       if (status === "PRESENT") {
-        dayMap[day].present++;
+        map[label].present++;
       } else if (status === "ABSENT") {
-        dayMap[day].absent++;
+        map[label].absent++;
       } else if (status === "LATE") {
-        dayMap[day].late++;
+        map[label].late++;
       }
     });
 
-    return res.json(Object.values(dayMap));
+    return res.json(Object.values(map));
   } catch (error) {
     console.error("Reports attendance error:", error);
 
@@ -233,6 +303,8 @@ export const getPayroll = async (
     const tenantId = getTenantId(req, res);
 
     if (!tenantId) return;
+
+    getReportRange(req.query.period);
 
     const employees = await prisma.employeeProfile.findMany({
       where: {
@@ -299,7 +371,8 @@ export const exportMonthlyAttendance = async (
 
 if (!tenantId) return;
 
- const { startDate, endDate } = getMonthRange();
+ const { period, startDate, endDate } = getReportRange(req.query.period);
+
     
  const records = await prisma.attendanceRecord.findMany({
       where: {
@@ -307,6 +380,10 @@ if (!tenantId) return;
         date: {
           gte: startDate,
           lte: endDate,
+        },
+        user: {
+          isActive: true,
+          deletedAt: null,
         },
       },
       include: {

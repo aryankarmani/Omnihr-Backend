@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { createNotification, notifyAdmins } from '../utils/notification';
 import { getManagerTeamMemberIds } from "../utils/teamScope";
+import bcrypt from "bcryptjs"; 
 
 const prisma = new PrismaClient();
 
@@ -191,7 +192,7 @@ export const getAllEmployees = async (req: Request, res: Response) => {
         }
 
         const employees = await prisma.user.findMany({
-            where: whereClause, 
+            where: whereClause,
             include: employeeInclude,
             orderBy: { createdAt: 'desc' }
         });
@@ -210,6 +211,8 @@ export const createEmployee = async (req: Request, res: Response) => {
         const tenantId = (req as any).user?.tenantId;
         if (!tenantId) return res.status(401).json({ message: 'Unauthorized' });
 
+        const data = typeof req.body.data === 'string' ? JSON.parse(req.body.data) : req.body;
+
         const {
             name, email, password, phone, role, roleId,
             department, location, title, departmentId, designationId, locationId, shiftId, joiningDate,
@@ -219,7 +222,7 @@ export const createEmployee = async (req: Request, res: Response) => {
             uan, pfNumber, esic, pan, aadhaar,
             bankName, accountNumber, ifsc,
             salary,
-        } = req.body;
+        } = data;
 
         // Basic validation
         if (!email || !name) {
@@ -273,14 +276,20 @@ export const createEmployee = async (req: Request, res: Response) => {
                 title || role
             );
 
+            // ✅ ADDED: Hash password before saving user
+            const plainPassword = password || "Welcome@123";
+            const hashedPassword = await bcrypt.hash(plainPassword, 10);
+
             // 1. Create User
             const user = await tx.user.create({
                 data: {
                     name,
                     email,
-                    password: password || 'Welcome@123', // Default password
+                   password: hashedPassword, // Default password
                     tenantId,
-                    roleId: finalRoleId
+                    roleId: finalRoleId,
+                    isActive: true, // ✅ ADDED: ensure login query can find user
+                    deletedAt: null,
                 }
             });
 
@@ -307,6 +316,9 @@ export const createEmployee = async (req: Request, res: Response) => {
                     dob: dob ? new Date(dob) : null,
                     address: address || null,
                     bloodGroup: bloodGroup || null,
+
+                    isActive: true, // ✅ ADDED
+                    deletedAt: null,
 
                     // NEW UPDATE: Create Salary Structure while onboarding
                     salary: {
@@ -336,6 +348,27 @@ export const createEmployee = async (req: Request, res: Response) => {
                     ifsc: ifsc || 'Not Provided'
                 }
             });
+
+    
+            const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
+            if (files) {
+                const docPromises = [];
+                for (const fieldName of ['aadhaar', 'pan', 'degree']) {
+                    const fileArr = files[fieldName];
+                    if (fileArr && fileArr[0]) {
+                        const file = fileArr[0];
+                        docPromises.push(tx.document.create({
+                            data: {
+                                profileId: profile.id,
+                                name: fieldName === 'aadhaar' ? 'Aadhaar Card' : fieldName === 'pan' ? 'PAN Card' : 'Highest Qualification Degree',
+                                url: `/uploads/${file.filename}`,
+                                type: file.mimetype
+                            }
+                        }));
+                    }
+                }
+                await Promise.all(docPromises);
+            }
 
             return user;
         });
@@ -581,17 +614,33 @@ export const updateEmployee = async (req: Request, res: Response) => {
 export const addDocument = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
-        const { name, url, type } = req.body;
+        const file = req.file;
+
+        if (!file) {
+            return res.status(400).json({ message: 'File is required' });
+        }
+
+        const name = req.body.name || file.originalname;
+        const type = req.body.type || file.mimetype;
 
         // Find Profile ID first
         const profile = await prisma.employeeProfile.findUnique({ where: { userId: Number(id) } });
         if (!profile) return res.status(404).json({ message: 'Profile not found. Create profile first.' });
 
+        // Overwrite if same file type already exists
+        const existingDoc = await prisma.document.findFirst({
+            where: { profileId: profile.id, name }
+        });
+
+        if (existingDoc) {
+            await prisma.document.delete({ where: { id: existingDoc.id } });
+        }
+
         const doc = await prisma.document.create({
             data: {
                 profileId: profile.id,
                 name,
-                url, // In real app, this comes from file upload middleware
+                url: `/uploads/${file.filename}`,
                 type
             }
         });
