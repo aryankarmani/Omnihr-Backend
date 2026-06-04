@@ -120,6 +120,32 @@ const getWorkingDays = (start: Date, end: Date) => {
   return count;
 };
 
+// ✅ CHANGED: Common active employee query from User table
+const activeUserWhere = (tenantId: string) => ({
+  tenantId,
+  isActive: true,
+  deletedAt: null,
+});
+
+// ✅ CHANGED: Get all active users with profile/salary
+const getActiveEmployees = async (tenantId: string) => {
+  return prisma.user.findMany({
+    where: activeUserWhere(tenantId),
+    include: {
+      role: true,
+      employeeProfile: {
+        include: {
+          salary: true,
+          departmentRef: true,
+        },
+      },
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+  });
+};
+
 // ================= DASHBOARD =================
 export const getDashboard = async (
   req: Request,
@@ -132,23 +158,11 @@ export const getDashboard = async (
 
     const { period, startDate, endDate, today, firstDay } = getReportRange(req.query.period);
 
-    const employees = await prisma.employeeProfile.findMany({
-      where: {
-        tenantId,
-        isActive: true,
-        deletedAt: null,
-        user: {
-          isActive: true,
-          deletedAt: null,
-        },
-      },
-      include: {
-        salary: true,
-      },
-    });
+    // ✅ CHANGED: Users are source of truth, not EmployeeProfile
+    const employees = await getActiveEmployees(tenantId);
 
     const totalPayroll = employees.reduce((sum, emp) => {
-      return sum + calculateSalary(emp.salary);
+      return sum + calculateSalary(emp.employeeProfile?.salary);
     }, 0);
 
     // Scale payroll based on selected period
@@ -192,34 +206,33 @@ export const getDashboard = async (
       if (prevToday > lastDayOfPrevMonth) {
         prevToday.setDate(lastDayOfPrevMonth.getDate());
       }
+       prevFirstDay.setHours(0, 0, 0, 0);
       prevToday.setHours(23, 59, 59, 999);
     }
 
-    const prevEmployees = await prisma.employeeProfile.findMany({
+    // ✅ CHANGED: Previous payroll also uses User table
+    const prevEmployees = await prisma.user.findMany({
       where: {
         tenantId,
-        AND: [
-          {
-            OR: [
-              { deletedAt: null },
-              { deletedAt: { gte: prevFirstDay } }
-            ]
-          },
-          {
-            OR: [
-              { joiningDate: null },
-              { joiningDate: { lte: prevToday } }
-            ]
-          }
-        ]
+        createdAt: {
+          lte: prevToday,
+        },
+        OR: [
+          { deletedAt: null },
+          { deletedAt: { gte: prevFirstDay } },
+        ],
       },
       include: {
-        salary: true,
+        employeeProfile: {
+          include: {
+            salary: true,
+          },
+        },
       },
     });
 
     const prevTotalPayroll = prevEmployees.reduce((sum, emp) => {
-      return sum + calculateSalary(emp.salary);
+      return sum + calculateSalary(emp.employeeProfile?.salary);
     }, 0);
 
     let prevPeriodPayroll = prevTotalPayroll;
@@ -240,9 +253,7 @@ export const getDashboard = async (
       growthPercent = 100;
     }
 
-    const growthSign = growthPercent >= 0 ? "+" : "";
-    const payrollGrowth = `${growthSign}${growthPercent}%`;
-
+    const payrollGrowth = `${growthPercent >= 0 ? "+" : ""}${growthPercent}%`;
     // ===== ATTENDANCE =====
     const attendanceRecords = await prisma.attendanceRecord.findMany({
       where: {
@@ -286,6 +297,7 @@ export const getDashboard = async (
     });
 
     return res.json({
+        totalEmployees: employees.length,
       totalPayroll: periodPayroll,
       avgAttendance,
       pendingLeaves,
@@ -309,21 +321,21 @@ export const getDashboard = async (
 };
 
 
-// ================= ATTENDANCE =================
-// Helper to get month names list in range
-const getMonthsInRange = (start: Date, end: Date) => {
-  const months: string[] = [];
-  const cursor = new Date(start);
-  cursor.setDate(1);
-  while (cursor <= end) {
-    const monthName = cursor.toLocaleDateString("en-US", { month: "short" });
-    if (!months.includes(monthName)) {
-      months.push(monthName);
-    }
-    cursor.setMonth(cursor.getMonth() + 1);
-  }
-  return months;
-};
+// // ================= ATTENDANCE =================
+// // Helper to get month names list in range
+// const getMonthsInRange = (start: Date, end: Date) => {
+//   const months: string[] = [];
+//   const cursor = new Date(start);
+//   cursor.setDate(1);
+//   while (cursor <= end) {
+//     const monthName = cursor.toLocaleDateString("en-US", { month: "short" });
+//     if (!months.includes(monthName)) {
+//       months.push(monthName);
+//     }
+//     cursor.setMonth(cursor.getMonth() + 1);
+//   }
+//   return months;
+// };
 
 // ================= ATTENDANCE =================
 export const getAttendance = async (
@@ -354,16 +366,9 @@ export const getAttendance = async (
       },
     });
 
-    const activeEmployeesCount = await prisma.employeeProfile.count({
-      where: {
-        tenantId,
-        isActive: true,
-        deletedAt: null,
-        user: {
-          isActive: true,
-          deletedAt: null,
-        },
-      },
+     // ✅ CHANGED: Count users instead of employeeProfile
+    const activeEmployeesCount = await prisma.user.count({
+      where: activeUserWhere(tenantId),
     });
 
     const map: Record<
@@ -517,33 +522,23 @@ export const getPayroll = async (
 
     const { period } = getReportRange(req.query.period);
 
-    const employees = await prisma.employeeProfile.findMany({
-      where: {
-        tenantId,
-        isActive: true,
-        deletedAt: null,
-        user: {
-          isActive: true,
-          deletedAt: null,
-        },
-      },
-      include: {
-        salary: true,
-        departmentRef: true,
-      },
-    });
+    // ✅ CHANGED: Payroll reads from User, profile is optional
+    const employees = await getActiveEmployees(tenantId);
+
 
     const departmentMap: Record<string, number> = {};
 
-    employees.forEach((emp) => {
+    employees.forEach((user) => {
+        const profile = user.employeeProfile;
+
       const department =
-        emp.departmentRef?.name || emp.department || "Unknown";
+        profile?.departmentRef?.name || profile?.department || "Unknown";
 
       if (!departmentMap[department]) {
         departmentMap[department] = 0;
       }
 
-      departmentMap[department] += calculateSalary(emp.salary);
+      departmentMap[department] +=  calculateSalary(profile?.salary);
     });
 
     // Scale values based on period
@@ -593,7 +588,7 @@ export const exportMonthlyAttendance = async (
 
     if (!tenantId) return;
 
-    const { period, startDate, endDate } = getReportRange(req.query.period);
+    const {  startDate, endDate } = getReportRange(req.query.period);
 
 
     const records = await prisma.attendanceRecord.findMany({
@@ -693,36 +688,24 @@ export const exportSalaryRegister = async (
       multiplier = 12;
     }
 
-    const employees =
-      await prisma.employeeProfile.findMany({
-        where: {
-          tenantId,
-          isActive: true,
-          deletedAt: null,
-          user: {
-            isActive: true,
-            deletedAt: null,
-          },
-        },
-        include: {
-          user: true,
-          salary: true,
-          departmentRef: true,
-        },
-      });
+    // ✅ CHANGED: Salary export also reads all active users
+    const employees = await getActiveEmployees(tenantId);
 
-    const formatted = employees.map((emp) => {
-      const basic = emp.salary?.basic || 0;
-      const hra = emp.salary?.hra || 0;
-      const special = emp.salary?.special || 0;
-      const medical = emp.salary?.medical || 0;
-      const grossSalary = calculateSalary(emp.salary);
+    const formatted = employees.map((user) => {
+      const profile = user.employeeProfile;
+      const salary = profile?.salary;
+
+      const basic = salary?.basic || 0;
+      const hra = salary?.hra || 0;
+      const special = salary?.special || 0;
+      const medical = salary?.medical || 0;
+      const grossSalary = calculateSalary(salary);
 
       return {
-        employeeId: emp.userId,
-        name: emp.user?.name || "",
-        email: emp.user?.email || "",
-        department: emp.departmentRef?.name || emp.department || "",
+        employeeId: user.id,
+        name: user.name || "",
+        email: user.email || "",
+        department: profile?.departmentRef?.name || profile?.department || "",
         basic: Math.round(basic * multiplier),
         hra: Math.round(hra * multiplier),
         special: Math.round(special * multiplier),
@@ -816,11 +799,7 @@ export const exportLeaveBalance = async (
 
     sheet.columns = [
 
-      {
-        header: "Employee ID",
-        key: "userId",
-        width: 15
-      },
+         { header: "Employee ID", key: "employeeId", width: 15 },
 
       {
         header: "Name",
