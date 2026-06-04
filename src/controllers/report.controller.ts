@@ -16,7 +16,7 @@ const prisma = new PrismaClient();
 const getTenantId = (req: Request, res: Response): string | null => {
   const user = req.user as any;
   const tenantId =
-  user?.tenantId ||
+    user?.tenantId ||
     (req.headers["x-tenant-id"] as string) ||
     (req.query.tenantId as string);
 
@@ -163,6 +163,86 @@ export const getDashboard = async (
       periodPayroll = totalPayroll * 12;
     }
 
+    // ===== PREVIOUS PERIOD PAYROLL FOR GROWTH CALCULATION =====
+    let prevFirstDay: Date;
+    let prevToday: Date;
+
+    if (period === "weekly") {
+      prevFirstDay = new Date(firstDay);
+      prevFirstDay.setDate(prevFirstDay.getDate() - 7);
+      prevToday = new Date(today);
+      prevToday.setDate(prevToday.getDate() - 7);
+    } else if (period === "quarter") {
+      prevFirstDay = new Date(firstDay.getFullYear(), firstDay.getMonth() - 3, 1);
+      prevToday = new Date(firstDay.getFullYear(), firstDay.getMonth(), 0);
+      prevToday.setHours(23, 59, 59, 999);
+    } else if (period === "semi-annual") {
+      prevFirstDay = new Date(firstDay.getFullYear(), firstDay.getMonth() - 6, 1);
+      prevToday = new Date(firstDay.getFullYear(), firstDay.getMonth(), 0);
+      prevToday.setHours(23, 59, 59, 999);
+    } else if (period === "annual") {
+      prevFirstDay = new Date(firstDay.getFullYear(), firstDay.getMonth() - 12, 1);
+      prevToday = new Date(firstDay.getFullYear(), firstDay.getMonth(), 0);
+      prevToday.setHours(23, 59, 59, 999);
+    } else {
+      // monthly
+      prevFirstDay = new Date(firstDay.getFullYear(), firstDay.getMonth() - 1, 1);
+      prevToday = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate());
+      const lastDayOfPrevMonth = new Date(today.getFullYear(), today.getMonth(), 0);
+      if (prevToday > lastDayOfPrevMonth) {
+        prevToday.setDate(lastDayOfPrevMonth.getDate());
+      }
+      prevToday.setHours(23, 59, 59, 999);
+    }
+
+    const prevEmployees = await prisma.employeeProfile.findMany({
+      where: {
+        tenantId,
+        AND: [
+          {
+            OR: [
+              { deletedAt: null },
+              { deletedAt: { gte: prevFirstDay } }
+            ]
+          },
+          {
+            OR: [
+              { joiningDate: null },
+              { joiningDate: { lte: prevToday } }
+            ]
+          }
+        ]
+      },
+      include: {
+        salary: true,
+      },
+    });
+
+    const prevTotalPayroll = prevEmployees.reduce((sum, emp) => {
+      return sum + calculateSalary(emp.salary);
+    }, 0);
+
+    let prevPeriodPayroll = prevTotalPayroll;
+    if (period === "weekly") {
+      prevPeriodPayroll = Math.round(prevTotalPayroll * (7 / 30));
+    } else if (period === "quarter") {
+      prevPeriodPayroll = prevTotalPayroll * 3;
+    } else if (period === "semi-annual") {
+      prevPeriodPayroll = prevTotalPayroll * 6;
+    } else if (period === "annual") {
+      prevPeriodPayroll = prevTotalPayroll * 12;
+    }
+
+    let growthPercent = 0;
+    if (prevPeriodPayroll > 0) {
+      growthPercent = Math.round(((periodPayroll - prevPeriodPayroll) / prevPeriodPayroll) * 100);
+    } else if (periodPayroll > 0) {
+      growthPercent = 100;
+    }
+
+    const growthSign = growthPercent >= 0 ? "+" : "";
+    const payrollGrowth = `${growthSign}${growthPercent}%`;
+
     // ===== ATTENDANCE =====
     const attendanceRecords = await prisma.attendanceRecord.findMany({
       where: {
@@ -209,18 +289,7 @@ export const getDashboard = async (
       totalPayroll: periodPayroll,
       avgAttendance,
       pendingLeaves,
-
-      // UPDATED: text according to selected period
-      payrollGrowth:
-        period === "weekly"
-          ? "+5% this week"
-          : period === "monthly"
-          ? "+5% this month"
-          : period === "quarter"
-          ? "+5% this quarter"
-          : period === "semi-annual"
-          ? "+5% in 6 months"
-          : "+5% this year",
+      payrollGrowth,
 
       attendanceTrend:
         avgAttendance >= 75 ? "Good attendance" : "Needs attention",
@@ -285,12 +354,25 @@ export const getAttendance = async (
       },
     });
 
+    const activeEmployeesCount = await prisma.employeeProfile.count({
+      where: {
+        tenantId,
+        isActive: true,
+        deletedAt: null,
+        user: {
+          isActive: true,
+          deletedAt: null,
+        },
+      },
+    });
+
     const map: Record<
       string,
       { name: string; present: number; absent: number; late: number }
     > = {};
 
     let orderedLabels: string[] = [];
+    const monthRanges: Record<string, { start: Date; end: Date }> = {};
 
     // Pre-populate map based on period
     if (period === "weekly") {
@@ -304,10 +386,20 @@ export const getAttendance = async (
         map[label] = { name: label, present: 0, absent: 0, late: 0 };
       });
     } else {
-      orderedLabels = getMonthsInRange(firstDay, today);
-      orderedLabels.forEach((label) => {
-        map[label] = { name: label, present: 0, absent: 0, late: 0 };
-      });
+      const cursor = new Date(firstDay);
+      cursor.setDate(1);
+      while (cursor <= today) {
+        const label = cursor.toLocaleDateString("en-US", { month: "short" });
+        if (!orderedLabels.includes(label)) {
+          orderedLabels.push(label);
+          map[label] = { name: label, present: 0, absent: 0, late: 0 };
+          monthRanges[label] = {
+            start: new Date(cursor.getFullYear(), cursor.getMonth(), 1),
+            end: new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0),
+          };
+        }
+        cursor.setMonth(cursor.getMonth() + 1);
+      }
     }
 
     records.forEach((record) => {
@@ -335,10 +427,72 @@ export const getAttendance = async (
         const status = String(record.status).toUpperCase();
         if (status === "PRESENT" || status === "LATE") {
           map[label].present++;
-        } else if (status === "ABSENT") {
-          map[label].absent++;
         }
       }
+    });
+
+    // Calculate absent counts based on working days in the period
+    orderedLabels.forEach((label, i) => {
+      let workingDays = 0;
+
+      if (period === "weekly") {
+        const dayDate = new Date(firstDay);
+        dayDate.setDate(firstDay.getDate() + i);
+        dayDate.setHours(0, 0, 0, 0);
+
+        const currentToday = new Date(today);
+        currentToday.setHours(23, 59, 59, 999);
+
+        if (dayDate <= currentToday) {
+          const dayOfWeek = dayDate.getDay();
+          // Monday (1) to Friday (5) are working days
+          if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+            workingDays = 1;
+          }
+        }
+      } else if (period === "monthly") {
+        const year = firstDay.getFullYear();
+        const month = firstDay.getMonth();
+        let weekStart: Date;
+        let weekEnd: Date;
+
+        if (i === 0) {
+          weekStart = new Date(year, month, 1);
+          weekEnd = new Date(year, month, 7);
+        } else if (i === 1) {
+          weekStart = new Date(year, month, 8);
+          weekEnd = new Date(year, month, 14);
+        } else if (i === 2) {
+          weekStart = new Date(year, month, 15);
+          weekEnd = new Date(year, month, 21);
+        } else if (i === 3) {
+          weekStart = new Date(year, month, 22);
+          weekEnd = new Date(year, month, 28);
+        } else {
+          weekStart = new Date(year, month, 29);
+          weekEnd = new Date(year, month + 1, 0);
+        }
+
+        const start = weekStart > firstDay ? weekStart : firstDay;
+        const end = weekEnd < today ? weekEnd : today;
+
+        if (start <= end) {
+          workingDays = getWorkingDays(start, end);
+        }
+      } else {
+        const range = monthRanges[label];
+        if (range) {
+          const start = range.start > firstDay ? range.start : firstDay;
+          const end = range.end < today ? range.end : today;
+
+          if (start <= end) {
+            workingDays = getWorkingDays(start, end);
+          }
+        }
+      }
+
+      const expected = workingDays * activeEmployeesCount;
+      map[label].absent = Math.max(0, expected - map[label].present);
     });
 
     const result = orderedLabels.map((l) => map[l]);
@@ -382,10 +536,10 @@ export const getPayroll = async (
     const departmentMap: Record<string, number> = {};
 
     employees.forEach((emp) => {
-       const department =
+      const department =
         emp.departmentRef?.name || emp.department || "Unknown";
 
-       if (!departmentMap[department]) {
+      if (!departmentMap[department]) {
         departmentMap[department] = 0;
       }
 
@@ -427,22 +581,22 @@ export const exportMonthlyAttendance = async (
   req: Request,
   res: Response
 ) => {
-  
-// console.log("EXPORT HIT");
-// console.log("QUERY:", req.query);
-// console.log("HEADERS:", req.headers);
+
+  // console.log("EXPORT HIT");
+  // console.log("QUERY:", req.query);
+  // console.log("HEADERS:", req.headers);
 
 
   try {
-       
-  const tenantId = getTenantId(req, res);
 
-if (!tenantId) return;
+    const tenantId = getTenantId(req, res);
 
- const { period, startDate, endDate } = getReportRange(req.query.period);
+    if (!tenantId) return;
 
-    
- const records = await prisma.attendanceRecord.findMany({
+    const { period, startDate, endDate } = getReportRange(req.query.period);
+
+
+    const records = await prisma.attendanceRecord.findMany({
       where: {
         tenantId,
         date: {
@@ -462,7 +616,7 @@ if (!tenantId) return;
       },
     });
 
-    
+
     const formatted = records.map((record) => ({
 
       employeeId: record.userId,
@@ -474,7 +628,7 @@ if (!tenantId) return;
       hours: record.hours || 0,
 
     }));
-    
+
 
 
 
@@ -521,7 +675,7 @@ export const exportSalaryRegister = async (
 
   try {
 
-   const tenantId = getTenantId(req, res);
+    const tenantId = getTenantId(req, res);
 
     if (!tenantId) return;
 
@@ -542,20 +696,20 @@ export const exportSalaryRegister = async (
     const employees =
       await prisma.employeeProfile.findMany({
         where: {
-        tenantId,
-        isActive: true,
-        deletedAt: null,
-        user: {
+          tenantId,
           isActive: true,
           deletedAt: null,
+          user: {
+            isActive: true,
+            deletedAt: null,
+          },
         },
-      },
-      include: {
-        user: true,
-        salary: true,
-        departmentRef: true,
-      },
-    });
+        include: {
+          user: true,
+          salary: true,
+          departmentRef: true,
+        },
+      });
 
     const formatted = employees.map((emp) => {
       const basic = emp.salary?.basic || 0;
@@ -622,22 +776,22 @@ export const exportLeaveBalance = async (
   req: Request,
   res: Response
 ) => {
-//   console.log("EXPORT HIT");
-// console.log("QUERY:", req.query);
-// console.log("HEADERS:", req.headers);
+  //   console.log("EXPORT HIT");
+  // console.log("QUERY:", req.query);
+  // console.log("HEADERS:", req.headers);
 
   try {
-   
-const tenantId = getTenantId(req, res);
 
-if (!tenantId) return;
+    const tenantId = getTenantId(req, res);
+
+    if (!tenantId) return;
 
 
 
     const { firstDay, today } = getReportRange(req.query.period);
 
     const leaves = await prisma.leave.findMany({
-       where: {
+      where: {
         tenantId,
         startDate: {
           gte: firstDay,
@@ -674,15 +828,15 @@ if (!tenantId) return;
         width: 25
       },
 
-  {
-    header: "Email",
-    key: "email",
-    width: 30
-  },
+      {
+        header: "Email",
+        key: "email",
+        width: 30
+      },
 
-   { header: "Leave Type", key: "leaveType", width: 20 },
+      { header: "Leave Type", key: "leaveType", width: 20 },
 
-   { header: "Reason", key: "reason", width: 30 },
+      { header: "Reason", key: "reason", width: 30 },
 
       {
         header: "Status",
@@ -705,23 +859,23 @@ if (!tenantId) return;
 
 
     leaves.forEach((leave) => {
-      
-sheet.addRow({
 
- employeeId: leave.userId,
+      sheet.addRow({
 
-  name: leave.user?.name || "",
+        employeeId: leave.userId,
 
-  email: leave.user?.email || "",
+        name: leave.user?.name || "",
 
-  leaveType: leave.leaveType?.name || "",
+        email: leave.user?.email || "",
 
-  reason: leave.reason,
+        leaveType: leave.leaveType?.name || "",
 
-  status: leave.status,
+        reason: leave.reason,
 
-  startDate: leave.startDate.toISOString().split("T")[0],
-  endDate: leave.endDate.toISOString().split("T")[0],
+        status: leave.status,
+
+        startDate: leave.startDate.toISOString().split("T")[0],
+        endDate: leave.endDate.toISOString().split("T")[0],
 
       });
 
@@ -750,80 +904,3 @@ sheet.addRow({
     });
   }
 };
-
-// ================= TEST CREATE APIs =================
-// export const createAttendance = async (
-//   req: Request,
-//   res: Response
-// ) => {
-//   try {
-//     const data =
-//       await prisma.attendanceRecord.create({
-//         data: req.body
-//       });
-
-//     res.json(data);
-
-//   } catch (err) {
-//     console.error(err);
-
-//     res.status(500).json(err);
-//   }
-// };
-
-// export const createLeave = async (
-//   req: Request,
-//   res: Response
-// ) => {
-//   try {
-//     const data =
-//       await prisma.leave.create({
-//         data: req.body
-//       });
-
-//     res.json(data);
-
-//   } catch (err) {
-//     console.error(err);
-
-//     res.status(500).json(err);
-//   }
-// };
-
-// export const createEmployeeProfile = async (
-//   req: Request,
-//   res: Response
-// ) => {
-//   try {
-//     const data =
-//       await prisma.employeeProfile.create({
-//         data: req.body
-//       });
-
-//     res.json(data);
-
-//   } catch (err) {
-//     console.error(err);
-
-//     res.status(500).json(err);
-//   }
-// };
-
-// export const createSalary = async (
-//   req: Request,
-//   res: Response
-// ) => {
-//   try {
-//     const data =
-//       await prisma.salaryStructure.create({
-//         data: req.body
-//       });
-
-//     res.json(data);
-
-//   } catch (err) {
-//     console.error(err);
-
-//     res.status(500).json(err);
-//   }
-// };
