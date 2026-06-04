@@ -3,9 +3,46 @@ import { PrismaClient } from '@prisma/client';
 import { createNotification, notifyAdmins } from '../utils/notification';
 import { getManagerTeamMemberIds } from "../utils/teamScope";
 import bcrypt from "bcryptjs"; 
-import { sendMail } from "../utils/mail";
+import crypto from "crypto";
+import { sendMail, employeeWelcomeTemplate } from "../utils/mail";
+
 
 const prisma = new PrismaClient();
+
+// ✅ ADDED: Generates strong random password for every employee
+const generateRandomPassword = () => {
+  const upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  const lower = "abcdefghijklmnopqrstuvwxyz";
+  const numbers = "0123456789";
+  const symbols = "@#$!";
+  const all = upper + lower + numbers + symbols;
+
+  let password =
+    upper[crypto.randomInt(upper.length)] +
+    lower[crypto.randomInt(lower.length)] +
+    numbers[crypto.randomInt(numbers.length)] +
+    symbols[crypto.randomInt(symbols.length)];
+
+  for (let i = 0; i < 8; i++) {
+    password += all[crypto.randomInt(all.length)];
+  }
+
+  return password
+    .split("")
+    .sort(() => crypto.randomInt(3) - 1)
+    .join("");
+};
+
+// ✅ ADDED: Gets frontend URL from request origin, not .env
+const getFrontendLoginUrl = (req: Request) => {
+  const origin = req.headers.origin;
+
+  if (origin && origin.startsWith("http")) {
+    return `${origin}/login`;
+  }
+
+  return "http://localhost:5173/login";
+};
 
 const employeeInclude = {
     employeeProfile: {
@@ -254,6 +291,10 @@ export const createEmployee = async (req: Request, res: Response) => {
             targetRoleId = defaultRole?.id;
         }
 
+        // ✅ ADDED: Generated once so we can hash it and also send it in email
+        const plainPassword = generateRandomPassword();
+        const loginUrl = getFrontendLoginUrl(req);
+
         const newUser = await prisma.$transaction(async (tx) => {
             // UPDATED: auto-create/find department and designation masters
             const finalDepartmentId = await getOrCreateDepartmentId(
@@ -270,10 +311,9 @@ export const createEmployee = async (req: Request, res: Response) => {
                 title || "Employee"
             );
 
-            // ✅ ADDED: Hash password before saving user
-            const plainPassword = password || "Welcome@123";
+            // ✅ CHANGED: Always generate random password for every employee
             const hashedPassword = await bcrypt.hash(plainPassword, 10);
-
+            
             // 1. Create User
             const user = await tx.user.create({
                 data: {
@@ -388,18 +428,20 @@ export const createEmployee = async (req: Request, res: Response) => {
             type: 'employee',
         });
 
-        // ✅ ADDED: Send welcome email to new employee
+        // ✅ CHANGED: Professional email with dynamic login link and random password
         try {
+            const emailContent = employeeWelcomeTemplate({
+                name,
+                email,
+                password: plainPassword,
+                loginUrl,
+            });
+
             await sendMail({
                 to: email,
-                subject: "Welcome to EnCalm HRMS",
-                html: `
-            <h2>Welcome ${name}</h2>
-            <p>Your employee account has been created in EnCalm HRMS.</p>
-            <p><b>Email:</b> ${email}</p>
-            <p><b>Temporary Password:</b> ${password || "Welcome@123"}</p>
-            <p>Please login and change your password.</p>
-        `,
+                subject: "Welcome to EnCalm HRMS - Your Account is Ready",
+                html: emailContent.html,
+                text: emailContent.text,
             });
         } catch (mailError) {
             console.log("Employee created but email failed:", mailError);

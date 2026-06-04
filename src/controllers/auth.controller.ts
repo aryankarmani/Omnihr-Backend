@@ -3,7 +3,7 @@ import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import jwt  from "jsonwebtoken";
 import crypto from "crypto";
-import { sendMail } from "../utils/mail"; // ✅ ADDED
+import { sendMail, otpTemplate } from "../utils/mail";
 
 const prisma = new PrismaClient();
 
@@ -332,16 +332,14 @@ export const sendOtp = async (req: Request, res: Response) => {
       },
     });
 
+    // ✅ CHANGED: Professional OTP email template
+    const otpEmail = otpTemplate({ otp });
+
     await sendMail({
       to: email,
-      subject: "Your EnCalm HRMS OTP",
-      html: `
-        <h2>Password Reset OTP</h2>
-        <p>Your OTP is:</p>
-        <h1>${otp}</h1>
-        <p>This OTP is valid for 10 minutes.</p>
-      `,
-      text: `Your EnCalm HRMS OTP is ${otp}. It is valid for 10 minutes.`,
+      subject: "Your EnCalm HRMS Password Reset OTP",
+      html: otpEmail.html,
+      text: otpEmail.text,
     });
 
     return res.json({
