@@ -66,53 +66,77 @@ export const getStats = async (req: Request, res: Response) => {
             },
         });
 
-        // 4. Avg Attendance (Calculate from AttendanceRecord for the current month)
-        const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-        const attendanceCount = await prisma.attendanceRecord.count({
-            where: {
-                tenantId,
-                date: { gte: firstDayOfMonth.toISOString().split('T')[0] },
-                status: {
-                    in: ['Present', 'Late'],
-                },
-                user: {
-                    isActive: true,
-                    deletedAt: null,
-                },
-            }
-        });
+        // // 4. Avg Attendance (Calculate from AttendanceRecord for the current month)
+        // const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+        // const attendanceCount = await prisma.attendanceRecord.count({
+        //     where: {
+        //         tenantId,
+        //         date: { gte: firstDayOfMonth.toISOString().split('T')[0] },
+        //         status: {
+        //             in: ['Present', 'Late'],
+        //         },
+        //         user: {
+        //             isActive: true,
+        //             deletedAt: null,
+        //         },
+        //     }
+        // });
 
 
-        // ===== WORKING DAYS LOGIC =====
+        // // ===== WORKING DAYS LOGIC =====
 
-        let workingDaysElapsed = 0;
+        // let workingDaysElapsed = 0;
 
-        const cursor = new Date(firstDayOfMonth);
+        // const cursor = new Date(firstDayOfMonth);
 
-        while (cursor <= today) {
+        // while (cursor <= today) {
 
-            const dow = cursor.getDay();
+        //     const dow = cursor.getDay();
 
-            // Skip Sunday + Saturday
-            if (dow !== 0 && dow !== 6) {
-                workingDaysElapsed++;
-            }
+        //     // Skip Sunday + Saturday
+        //     if (dow !== 0 && dow !== 6) {
+        //         workingDaysElapsed++;
+        //     }
 
-            cursor.setDate(cursor.getDate() + 1);
-        }
+        //     cursor.setDate(cursor.getDate() + 1);
+        // }
 
-        const totalExpected =
-            workingDaysElapsed * headcount;
+        // const totalExpected =
+        //     workingDaysElapsed * headcount;
 
-        const avgAttendance =
-            totalExpected > 0
-                ? Math.min(
-                    100,
-                    Math.round(
-                        (attendanceCount / totalExpected) * 100
-                    )
-                )
-                : 0;
+        // const avgAttendance =
+        //     totalExpected > 0
+        //         ? Math.min(
+        //             100,
+        //             Math.round(
+        //                 (attendanceCount / totalExpected) * 100
+        //             )
+        //         )
+        //         : 0;
+
+        // UPDATED: Dashboard Avg Attendance = Today only
+// Formula: today's present or late employees / total active employees * 100
+
+const todayStr = today.toISOString().split('T')[0];
+
+const todayAttendanceCount = await prisma.attendanceRecord.count({
+    where: {
+        tenantId,
+        date: todayStr,
+        status: {
+            in: ['PRESENT', 'Present', 'present', 'LATE', 'Late', 'late'],
+        },
+        user: {
+            isActive: true,
+            deletedAt: null,
+        },
+    },
+});
+
+const avgAttendance =
+    headcount > 0
+        ? Math.round((todayAttendanceCount / headcount) * 100)
+        : 0;
 
 
 

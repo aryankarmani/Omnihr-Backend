@@ -2,6 +2,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import path from 'path';
 import { PrismaClient } from '@prisma/client';
 
 dotenv.config();
@@ -18,8 +19,11 @@ import leaveRoutes from './routes/leave.routes';
 import reportRoutes from './routes/report.routes';
 import teamRoutes from './routes/team.routes';
 import notificationRoutes from './routes/notification.routes';
+import { authenticate } from './middleware/auth';
+
 app.use(cors());
 app.use(express.json());
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 app.set('etag', false);
 
@@ -39,15 +43,12 @@ app.get('/api/debug-routes', (req, res) => {
 
 app.use('/api/chat', chatRoutes);
 app.use('/api/employee', employeeRoutes);
-app.use('/api/auth', (req, res, next) => {
-  console.log("AUTH ROUTE HIT:", req.method, req.url);
-  next();
-}, authRoutes);
+app.use('/api/auth', authRoutes);
 app.use('/api/masters', mastersRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/leave', leaveRoutes);
 app.use('/api/teams', teamRoutes);
 app.use('/api/dashboard', require('./routes/dashboard.routes').default);
-app.use('/api/reports', reportRoutes);
+app.use('/api/reports', authenticate,reportRoutes);
 
 export { app, prisma };

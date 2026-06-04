@@ -132,6 +132,9 @@ model User {
   teamsManaged Team[]       @relation("TeamManager")
   teamMembers  TeamMember[]
 
+  // ✅ NEW: Refresh token relation
+  refreshTokens RefreshToken[]
+
   // Attendance regularization relations
   attendanceRegularizationRequests  AttendanceRegularization[] @relation("AttendanceRegularizationRequester")
   attendanceRegularizationApprovals AttendanceRegularization[] @relation("AttendanceRegularizationApprover")
@@ -156,6 +159,21 @@ model User {
   investmentDeclarations InvestmentDeclaration[]
 
   @@unique([email, tenantId])
+}
+
+// ✅ NEW: Stores refresh tokens for login session
+model RefreshToken {
+  id        Int      @id @default(autoincrement())
+  token     String   @unique
+  userId    Int
+  tenantId  String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tenantId])
 }
 
 model Otp {
@@ -197,7 +215,26 @@ model Team {
   managerId Int?
   manager   User? @relation("TeamManager", fields: [managerId], references: [id])
 
+  // ✅ NEW: Team access-control relation
+  accessControl TeamAccessControl?
+
   members TeamMember[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ✅ NEW: Stores sidebar/access flags for each team
+model TeamAccessControl {
+  id     Int @id @default(autoincrement())
+  teamId Int @unique
+
+  list           Boolean @default(true)
+  attendance     Boolean @default(true)
+  leaveApproval  Boolean @default(true)
+  regularization Boolean @default(true)
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -282,14 +319,15 @@ model BankDetails {
 }
 
 model Document {
-  id        Int             @id @default(autoincrement())
-  profileId Int
-  profile   EmployeeProfile @relation(fields: [profileId], references: [id])
+  id           Int             @id @default(autoincrement())
+  profileId    Int
+  profile      EmployeeProfile @relation(fields: [profileId], references: [id])
 
-  name       String
-  url        String
-  type       String?
-  uploadedAt DateTime @default(now())
+  name         String
+  url          String
+  type         String?
+  originalName String?
+  uploadedAt   DateTime @default(now())
 }
 
 model SalaryStructure {
