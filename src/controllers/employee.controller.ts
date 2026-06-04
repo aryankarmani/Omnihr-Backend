@@ -1,7 +1,158 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
+import { createNotification, notifyAdmins } from '../utils/notification';
 
 const prisma = new PrismaClient();
+
+const employeeInclude = {
+    employeeProfile: {
+        include: {
+            statutory: true,
+            bank: true,
+            documents: true,
+            salary: true,
+            departmentRef: true,
+            designationRef: true,
+            
+            locationRef: true,
+            shiftRef: true,
+        },
+    },
+    role: true,
+    manager: true,
+};
+
+const getOrCreateRoleId = async (
+  tenantId: string,
+  roleId?: any,
+  roleName?: any
+) => {
+  if (roleId) return Number(roleId);
+
+  if (roleName && typeof roleName === 'string') {
+    const cleanRoleName = roleName.trim();
+
+    if (cleanRoleName) {
+      let role = await prisma.role.findFirst({
+        where: {
+          tenantId,
+          name: cleanRoleName,
+        },
+      });
+
+      if (!role) {
+        role = await prisma.role.create({
+          data: {
+            tenantId,
+            name: cleanRoleName,
+            accessibleModules: '',
+          },
+        });
+      }
+
+      return role.id;
+    }
+  }
+
+  const defaultRole = await prisma.role.findFirst({
+    where: {
+      tenantId,
+      name: 'EMPLOYEE',
+    },
+  });
+
+  return defaultRole?.id || null;
+};
+
+// UPDATED: get or create default company
+const getDefaultCompany = async (tenantId: string, tx: any) => {
+  let company = await tx.company.findFirst({
+    where: { tenantId },
+  });
+
+  if (!company) {
+    company = await tx.company.create({
+      data: {
+        tenantId,
+        legalName: 'Default Company',
+      },
+    });
+  }
+
+  return company;
+};
+
+// UPDATED: auto-create department master
+const getOrCreateDepartmentId = async (
+  tenantId: string,
+  tx: any,
+  departmentId?: any,
+  departmentName?: any
+) => {
+  if (departmentId) return String(departmentId);
+
+  if (!departmentName || typeof departmentName !== 'string') return null;
+
+  const cleanName = departmentName.trim();
+  if (!cleanName) return null;
+
+  let department = await tx.department.findFirst({
+    where: {
+      tenantId,
+      name: cleanName,
+    },
+  });
+
+  if (!department) {
+    const company = await getDefaultCompany(tenantId, tx);
+
+    department = await tx.department.create({
+      data: {
+        tenantId,
+        companyId: company.id,
+        name: cleanName,
+      },
+    });
+  }
+
+  return department.id;
+};
+
+// UPDATED: auto-create designation master
+const getOrCreateDesignationId = async (
+  tenantId: string,
+  tx: any,
+  designationId?: any,
+  designationName?: any
+) => {
+  if (designationId) return String(designationId);
+
+  if (!designationName || typeof designationName !== 'string') return null;
+
+  const cleanTitle = designationName.trim();
+  if (!cleanTitle) return null;
+
+  let designation = await tx.designation.findFirst({
+    where: {
+      tenantId,
+      title: cleanTitle,
+    },
+  });
+
+  if (!designation) {
+    const company = await getDefaultCompany(tenantId, tx);
+
+    designation = await tx.designation.create({
+      data: {
+        tenantId,
+        companyId: company.id,
+        title: cleanTitle,
+      },
+    });
+  }
+
+  return designation.id;
+};
 
 // Get all employees for the tenant
 export const getAllEmployees = async (req: Request, res: Response) => {
@@ -9,14 +160,28 @@ export const getAllEmployees = async (req: Request, res: Response) => {
         const tenantId = (req as any).user?.tenantId;
         if (!tenantId) return res.status(401).json({ message: 'Unauthorized' });
 
+        const { departmentId } = req.query;
+
         const employees = await prisma.user.findMany({
-            where: { tenantId },
-            include: {
-                employeeProfile: true,
-                role: true
+            where: {
+                tenantId,
+                isActive: true,
+                deletedAt: null,
+                ...(departmentId
+                    ? {
+                        employeeProfile: {
+                            departmentId: String(departmentId),
+                            isActive: true,
+                            deletedAt: null,
+                        },
+                    }
+                    : {})
+                ,
             },
+            include: employeeInclude,
             orderBy: { createdAt: 'desc' }
         });
+                
 
         res.json(employees);
     } catch (error) {
@@ -32,10 +197,14 @@ export const createEmployee = async (req: Request, res: Response) => {
         if (!tenantId) return res.status(401).json({ message: 'Unauthorized' });
 
         const {
-            name, email, password, phone, roleId, 
-            department, location, title, joiningDate,
+            name, email, password, phone,role,roleId,
+            department, location, title ,departmentId,designationId,locationId,shiftId, joiningDate,
+            dob,
+            address,
+            bloodGroup,
             uan, pfNumber, esic, pan, aadhaar,
-            bankName, accountNumber, ifsc
+            bankName, accountNumber, ifsc,
+            salary,
         } = req.body;
 
         // Basic validation
@@ -53,6 +222,19 @@ export const createEmployee = async (req: Request, res: Response) => {
         }
 
         // If no roleId provided, find the default 'EMPLOYEE' role
+        const finalRoleId = await getOrCreateRoleId(tenantId, roleId, role);
+
+        // NEW UPDATE: Convert salary values safely into numbers
+    const salaryData = {
+      basic: Number(salary?.basic || 0),
+      hra: Number(salary?.hra || 0),
+      special: Number(salary?.special || 0),
+      medical: Number(salary?.medical || 0),
+      pf: Number(salary?.pf || 0),
+      pt: Number(salary?.pt || 0),
+      tax: Number(salary?.tax || 0),
+    };
+
         let targetRoleId = roleId;
         if (!targetRoleId) {
             const defaultRole = await prisma.role.findFirst({
@@ -62,6 +244,21 @@ export const createEmployee = async (req: Request, res: Response) => {
         }
 
         const newUser = await prisma.$transaction(async (tx) => {
+            // UPDATED: auto-create/find department and designation masters
+            const finalDepartmentId = await getOrCreateDepartmentId(
+                tenantId,
+                tx,
+                departmentId,
+                department
+            );
+
+            const finalDesignationId = await getOrCreateDesignationId(
+                tenantId,
+                tx,
+                designationId,
+                title || role
+            );
+
             // 1. Create User
             const user = await tx.user.create({
                 data: {
@@ -69,7 +266,7 @@ export const createEmployee = async (req: Request, res: Response) => {
                     email,
                     password: password || 'Welcome@123', // Default password
                     tenantId,
-                    roleId: targetRoleId
+                    roleId: finalRoleId
                 }
             });
 
@@ -79,12 +276,29 @@ export const createEmployee = async (req: Request, res: Response) => {
                     userId: user.id,
                     tenantId,
                     phone,
+                    
                     department,
                     location,
-                    title,
+                    title: title || role || 'Employee',
+                    
+                    departmentId: finalDepartmentId,
+                    designationId: finalDesignationId,
+                    
+                    locationId: locationId || null,
+                    shiftId: shiftId || null,
                     joiningDate: joiningDate ? new Date(joiningDate) : new Date(),
-                    status: 'Active'
-                }
+                    status: 'Active',
+
+                    // NEW UPDATE: Save DOB, Address and Blood Group
+                    dob: dob ? new Date(dob) : null,
+                    address: address || null,
+                    bloodGroup: bloodGroup || null,
+
+                    // NEW UPDATE: Create Salary Structure while onboarding
+                    salary: {
+                        create: salaryData,
+                    },
+                },
             });
 
             // 3. Create Statutory Details
@@ -112,7 +326,27 @@ export const createEmployee = async (req: Request, res: Response) => {
             return user;
         });
 
-        res.status(201).json(newUser);
+           const fullEmployee = await prisma.user.findFirst({
+            where: { id: newUser.id, tenantId },
+            include: employeeInclude,
+        });
+
+        await createNotification({
+            tenantId,
+            userId: newUser.id,
+            title: 'Welcome!',
+            message: 'Your employee account has been created in Encalm HRMS.',
+            type: 'employee',
+        });
+
+        await notifyAdmins({
+            tenantId,
+            title: 'New Employee Added',
+            message: `${name} has been added as ${title || role || 'Employee'}.`,
+            type: 'employee',
+        });
+
+        res.status(201).json(fullEmployee);
     } catch (error: any) {
         console.error('Error creating employee:', error);
         res.status(500).json({ message: 'Server error', error: error.message });
@@ -161,17 +395,81 @@ export const getEmployee = async (req: Request, res: Response) => {
 export const updateEmployee = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
+       const userId = Number(id);
+       
         const {
-            // Personal
-            phone, dob, bloodGroup, address, location, department, title,
+            // User model
+            name, email,
+            // Profile model
+            phone, dob, bloodGroup, address,role,roleId,  location, department, title, status,
+            
+            departmentId,
+            designationId,
+            locationId,
+            shiftId,
+            
             // Statutory
             uan, pfNumber, esic, pan, aadhaar,
             // Bank
-            bankName, accountNumber, ifsc
+            bankName, accountNumber, ifsc,
+
+             // NEW UPDATE: Salary data from frontend
+            salary,
         } = req.body;
 
         const tenantId = (req as any).user?.tenantId;
         if (!tenantId) return res.status(401).json({ message: 'Unauthorized' });
+
+        const existingEmployee = await prisma.user.findFirst({
+            where: {
+                id: Number(id),
+                tenantId,
+            },
+        });
+
+        if (!existingEmployee) {
+            return res.status(404).json({ message: 'Employee not found' });
+        }
+        
+         const finalRoleId = await getOrCreateRoleId(tenantId, roleId, role);
+
+    // UPDATED: auto-create/find department and designation masters
+    const finalDepartmentId = await getOrCreateDepartmentId(
+      tenantId,
+      prisma,
+      departmentId,
+      department
+    );
+
+    const finalDesignationId = await getOrCreateDesignationId(
+      tenantId,
+      prisma,
+      designationId,
+      title || role
+    );
+
+    await prisma.user.update({
+      where: {
+        id:userId,
+      },
+      data: {
+        ...(name && { name }),
+        ...(email && { email }),
+        ...(finalRoleId && { roleId: finalRoleId }),
+      },
+    });
+
+    // NEW UPDATE: Convert salary string values into numbers
+    const salaryData = {
+      basic: Number(salary?.basic || 0),
+      hra: Number(salary?.hra || 0),
+      special: Number(salary?.special || 0),
+      medical: Number(salary?.medical || 0),
+      pf: Number(salary?.pf || 0),
+      pt: Number(salary?.pt || 0),
+      tax: Number(salary?.tax || 0),
+    };
+
 
         // Upsert Profile
         const updatedProfile = await prisma.employeeProfile.upsert({
@@ -179,7 +477,11 @@ export const updateEmployee = async (req: Request, res: Response) => {
             create: {
                 userId: Number(id),
                 tenantId,
-                title, department, location, phone, dob: dob ? new Date(dob) : undefined, bloodGroup, address,
+                title, department, location, phone, status, dob: dob ? new Date(dob) : undefined, bloodGroup, address,
+                departmentId: finalDepartmentId ,
+                designationId: finalDesignationId,
+                locationId: locationId || null,
+                shiftId: shiftId || null,
                 statutory: {
                     create: { uan, pfNumber, esic, pan, aadhaar }
                 },
@@ -188,7 +490,7 @@ export const updateEmployee = async (req: Request, res: Response) => {
                 }
             },
             update: {
-                title, department, location, phone, dob: dob ? new Date(dob) : undefined, bloodGroup, address,
+                title, department, location, phone, status, dob: dob ? new Date(dob) : undefined, bloodGroup, address,
                 statutory: {
                     upsert: {
                         create: { uan, pfNumber, esic, pan, aadhaar },
@@ -206,6 +508,25 @@ export const updateEmployee = async (req: Request, res: Response) => {
                 statutory: true,
                 bank: true
             }
+        });
+
+        // Update User Model if name or email changed
+        if (name || email) {
+            await prisma.user.update({
+                where: { id: Number(id) },
+                data: {
+                    ...(name && { name }),
+                    ...(email && { email })
+                }
+            });
+        }
+
+        await createNotification({
+            tenantId,
+            userId: Number(id),
+            title: 'Profile Updated',
+            message: 'Your employee profile has been updated by admin.',
+            type: 'employee',
         });
 
         res.json(updatedProfile);
@@ -241,6 +562,78 @@ export const addDocument = async (req: Request, res: Response) => {
     }
 };
 
+// Delete Employee
+export const deleteEmployee = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const tenantId = (req as any).user?.tenantId;
+ 
+        if (!tenantId) return res.status(401).json({ message: 'Unauthorized' });
+        
+         const userId = Number(id);
+
+        const employee = await prisma.user.findFirst({
+            where: {
+                id: userId,
+                tenantId,
+                isActive: true,
+                deletedAt: null,
+            },
+            include: {
+                employeeProfile: true,
+            },
+        });
+
+        if (!employee) {
+            return res.status(404).json({ message: 'Employee not found or already deleted' });
+        }
+
+        // Use transaction to ensure everything is deleted
+        await prisma.$transaction(async (tx) => {
+            // 0. Handle subordinates (nullify their managerId)
+            await tx.user.updateMany({
+                where: { managerId: userId,
+                    tenantId,
+                 },
+                data: { managerId: null }
+            });
+
+            // 1. Delete dependent records (Bank, Statutory, Documents, Salary)
+          
+            // UPDATED: Soft delete EmployeeProfile
+            // No bank/statutory/document/salary records are deleted now
+            await tx.employeeProfile.updateMany({
+                where: {
+                    userId,
+                    tenantId,
+                },
+                data: {
+                    isActive: false,
+                    deletedAt: new Date(),
+                    status: 'Inactive',
+                },
+            });
+
+            // UPDATED: Soft delete User
+            // Attendance, leave, tax, investment and payroll history remain saved
+            await tx.user.update({
+                where: {
+                    id: userId,
+                },
+                data: {
+                    isActive: false,
+                    deletedAt: new Date(),
+                },
+            });
+        });
+ 
+        res.json({ message: 'Employee and all associated records deleted successfully' });
+    } catch (error) {
+        console.error('Delete error:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+};
+ 
 // Delete Document
 export const deleteDocument = async (req: Request, res: Response) => {
     try {

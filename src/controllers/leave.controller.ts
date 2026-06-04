@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
+import { notifyAdmins,createNotification} from '../utils/notification';
 
 const prisma = new PrismaClient();
 
@@ -13,8 +14,14 @@ export const getLeaveBalances = async (req: Request, res: Response) => {
 
         // Fetch all leave types for the tenant
         const leaveTypes = await prisma.leaveType.findMany({
-            where: { tenantId }
-        });
+  where: {
+    tenantId,
+    code: {
+      in: ['CL', 'SL', 'EL']
+    }
+  },
+  distinct: ['code']
+});
 
         // Fetch approved leaves for the user to calculate taken days (FOR CURRENT YEAR ONLY)
         const currentYear = new Date().getFullYear();
@@ -56,6 +63,8 @@ export const getLeaveBalances = async (req: Request, res: Response) => {
         res.status(500).json({ message: 'Server error' });
     }
 };
+
+
 
 // Get leave history for the authenticated user
 export const getLeaveHistory = async (req: Request, res: Response) => {
@@ -124,6 +133,17 @@ export const applyLeave = async (req: Request, res: Response) => {
                 status: 'PENDING'
             }
         });
+        const employee = await prisma.user.findFirst({
+            where: { id: userId, tenantId },
+            select: { name: true },
+        });
+
+        await notifyAdmins({
+            tenantId,
+            title: 'New Leave Request',
+            message: `${employee?.name || 'Employee'} requested ${leaveType.name} from ${startDate} to ${endDate}.`,
+            type: 'leave',
+        });
 
         res.status(201).json(newLeave);
     } catch (error) {
@@ -143,8 +163,22 @@ export const updateLeaveStatus = async (req: Request, res: Response) => {
 
         const updatedLeave = await prisma.leave.update({
             where: { id: Number(id), tenantId },
-            data: { status }
+            data: { status },
+             include: {
+        leaveType: true,
+        user: {
+          select: { id: true, name: true },
+        },
+      },
+
         });
+         await createNotification({
+      tenantId,
+      userId: updatedLeave.userId,
+      title: 'Leave Status Updated',
+      message: `Your ${updatedLeave.leaveType?.name || 'leave'} request has been ${status}.`,
+      type: 'leave',
+    });
 
         res.json(updatedLeave);
     } catch (error) {

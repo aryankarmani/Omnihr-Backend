@@ -16,13 +16,19 @@ export const getStats = async (req: Request, res: Response) => {
         }
 
         // 1. Total Headcount
-        const headcount = await prisma.employeeProfile.count({
-            where: { tenantId, status: 'Active' }
+        const headcount = await prisma.user.count({
+            where: {
+                tenantId,
+                isActive: true,
+                deletedAt: null,
+
+            },
         });
 
         // 2. On Leave Today
         const today = new Date();
         today.setHours(0, 0, 0, 0);
+
         const endOfToday = new Date(today);
         endOfToday.setHours(23, 59, 59, 999);
 
@@ -31,17 +37,33 @@ export const getStats = async (req: Request, res: Response) => {
                 tenantId,
                 status: 'APPROVED',
                 startDate: { lte: endOfToday },
-                endDate: { gte: today }
+                endDate: { gte: today },
+                user: {
+                    isActive: true,
+                    deletedAt: null,
+                },
             }
         });
 
         // 3. New Joiners (Joined this month)
         const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+        const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+        endOfMonth.setHours(23, 59, 59, 999);
+
         const newJoiners = await prisma.employeeProfile.count({
             where: {
                 tenantId,
-                joiningDate: { gte: startOfMonth }
-            }
+                isActive: true,
+                deletedAt: null,
+                joiningDate: {
+                    gte: startOfMonth,
+                    lte: endOfMonth,
+                },
+                user: {
+                    isActive: true,
+                    deletedAt: null,
+                },
+            },
         });
 
         // 4. Avg Attendance (Calculate from AttendanceRecord for the current month)
@@ -50,14 +72,49 @@ export const getStats = async (req: Request, res: Response) => {
             where: {
                 tenantId,
                 date: { gte: firstDayOfMonth.toISOString().split('T')[0] },
-                status: 'Present'
+                status: {
+                    in: ['Present', 'Late'],
+                },
+                user: {
+                    isActive: true,
+                    deletedAt: null,
+                },
             }
         });
 
-        const totalExpectedDays = headcount * (today.getDate()); // Rough estimate: days passed * headcount
-        const avgAttendance = totalExpectedDays > 0 
-            ? Math.round((attendanceCount / totalExpectedDays) * 100) 
-            : 0;
+
+        // ===== WORKING DAYS LOGIC =====
+
+        let workingDaysElapsed = 0;
+
+        const cursor = new Date(firstDayOfMonth);
+
+        while (cursor <= today) {
+
+            const dow = cursor.getDay();
+
+            // Skip Sunday + Saturday
+            if (dow !== 0 && dow !== 6) {
+                workingDaysElapsed++;
+            }
+
+            cursor.setDate(cursor.getDate() + 1);
+        }
+
+        const totalExpected =
+            workingDaysElapsed * headcount;
+
+        const avgAttendance =
+            totalExpected > 0
+                ? Math.min(
+                    100,
+                    Math.round(
+                        (attendanceCount / totalExpected) * 100
+                    )
+                )
+                : 0;
+
+
 
         res.json({
             headcount,
@@ -73,25 +130,53 @@ export const getStats = async (req: Request, res: Response) => {
 
 export const getLiveAttendance = async (req: Request, res: Response) => {
     try {
-        // Mock data since no raw punches table exists in schema yet
-        const data = [
-            { name: '09:00', visitors: 40 },
-            { name: '10:00', visitors: 120 },
-            { name: '11:00', visitors: 180 },
-            { name: '12:00', visitors: 150 },
-            { name: '13:00', visitors: 90 },
-            { name: '14:00', visitors: 160 },
-            { name: '15:00', visitors: 140 },
-        ];
-        
-        // Simulating some dynamic variance
-        const dynamicData = data.map(d => ({
-            name: d.name,
-            visitors: d.visitors + Math.floor(Math.random() * 20 - 10)
-        }));
 
-        res.json(dynamicData);
+        const user = (req as any).user;
+        const tenantId = user?.tenantId;
+
+        if (!tenantId) {
+            return res.status(400).json({ message: 'Tenant ID required' });
+        }
+        const today = new Date().toISOString().split('T')[0];
+
+        const records = await prisma.attendanceRecord.findMany({
+            where: {
+                tenantId,
+                date: today,
+                inTime: {
+                    not: null,
+                },
+                user: {
+                    isActive: true,
+                    deletedAt: null,
+                },
+            },
+            select: {
+                inTime: true,
+            },
+        });
+
+        const timeSlots = ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00', '22:00', '23:00'];
+
+        const data = timeSlots.map((slot) => {
+            const hour = Number(slot.split(':')[0]);
+
+            const visitors = records.filter((record) => {
+                if (!record.inTime) return false;
+                const punchHour = new Date(record.inTime).getHours();
+
+                return punchHour === hour;
+            }).length;
+
+            return {
+                name: slot,
+                visitors,
+            };
+        });
+        res.json(data);
+
     } catch (error) {
+        console.error('Error fetching live attendance:', error);
         res.status(500).json({ message: 'Internal server error' });
     }
 };
@@ -142,12 +227,27 @@ export const getEmployeeOverview = async (req: Request, res: Response) => {
         if (!tenantId) return res.status(400).json({ message: 'Tenant ID required' });
 
         const employees = await prisma.employeeProfile.findMany({
-            where: { tenantId },
+            where: {
+                tenantId,
+                isActive: true,
+                deletedAt: null,
+                user: {
+                    isActive: true,
+                    deletedAt: null,
+                },
+            },
             include: {
-                user: { select: { id: true, name: true } }
+                user: {
+                    select: {
+                        id: true,
+                        name: true,
+                    },
+                },
             },
             take: 5,
-            orderBy: { id: 'desc' }
+            orderBy: {
+                joiningDate: 'desc',
+            },
         });
 
         const formatted = employees.map(emp => ({
