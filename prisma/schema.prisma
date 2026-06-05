@@ -319,9 +319,9 @@ model BankDetails {
 }
 
 model Document {
-  id           Int             @id @default(autoincrement())
-  profileId    Int
-  profile      EmployeeProfile @relation(fields: [profileId], references: [id])
+  id        Int             @id @default(autoincrement())
+  profileId Int
+  profile   EmployeeProfile @relation(fields: [profileId], references: [id])
 
   name         String
   url          String
