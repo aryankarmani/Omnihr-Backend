@@ -1,12 +1,12 @@
 import { Router } from 'express';
-import { login,
+import {
+        login,
         refreshToken,
-        register,
         logout,
         sendOtp,
         verifyOtp,
         resetPassword,
- } from '../controllers/auth.controller';
+} from '../controllers/auth.controller';
 
 const router = Router();
 
@@ -14,8 +14,6 @@ router.post('/login', login);
 // ✅ NEW: Frontend api.ts calls this route
 router.post("/refresh-token", refreshToken);
 
-// POST /api/auth/register
-router.post("/register", register);
 
 
 // ✅ NEW: Optional logout route
