@@ -163,7 +163,7 @@ export const login = async (req: Request, res: Response) => {
 
     if (!user || !user.password) {
       return res.status(401).json({
-        message: "Invalid email or password",
+        message: "Email not found",
       });
     }
 
@@ -173,7 +173,7 @@ export const login = async (req: Request, res: Response) => {
 
     if (!isPasswordValid) {
       return res.status(401).json({
-        message: "Invalid email or password",
+        message: "Incorrect password",
       });
     }
 
