@@ -73,9 +73,20 @@ export const getLeaveHistory = async (req: Request, res: Response) => {
         const userId = (req as any).user?.id;
         const tenantId = (req as any).user?.tenantId;
         const userRole = (req as any).user?.role;
-        const { all } = req.query;
+        const { all, employeeId } = req.query;
 
         if (!userId || !tenantId) return res.status(401).json({ message: 'Unauthorized' });
+
+        // If HR_ADMIN and employeeId given, return that specific employee's leaves
+        if (employeeId && userRole === 'HR_ADMIN') {
+            const targetUserId = Number(employeeId);
+            const leaves = await prisma.leave.findMany({
+                where: { userId: targetUserId, tenantId },
+                include: { leaveType: true, user: { select: { id: true, name: true, email: true, employeeProfile: true } } },
+                orderBy: { createdAt: 'desc' }
+            });
+            return res.json(leaves);
+        }
 
         // If HR_ADMIN and all=true, return all leaves for the tenant
         let whereClause: any = {
@@ -87,7 +98,7 @@ export const getLeaveHistory = async (req: Request, res: Response) => {
             whereClause = { tenantId };
         }
 
-        // ✅ NEW: MANAGER scoped leave approvals
+        // NEW: MANAGER scoped leave approvals
         if (all === "true" && userRole === "MANAGER") {
             const memberIds = await getManagerTeamMemberIds(tenantId, userId);
 
