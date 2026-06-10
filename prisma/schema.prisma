@@ -319,9 +319,9 @@ model BankDetails {
 }
 
 model Document {
-  id           Int             @id @default(autoincrement())
-  profileId    Int
-  profile      EmployeeProfile @relation(fields: [profileId], references: [id])
+  id        Int             @id @default(autoincrement())
+  profileId Int
+  profile   EmployeeProfile @relation(fields: [profileId], references: [id])
 
   name         String
   url          String
@@ -345,6 +345,11 @@ model SalaryStructure {
   pf  Float @default(0)
   pt  Float @default(0)
   tax Float @default(0) // TDS
+
+  // Computed / LWP
+  totalSalary  Float @default(0)
+  lwpDays      Int   @default(0)
+  lwpDeduction Float @default(0)
 }
 
 // -- Masters Schema --
