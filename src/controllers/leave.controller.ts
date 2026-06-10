@@ -190,21 +190,23 @@ export const applyLeave = async (req: Request, res: Response) => {
 export const updateLeaveStatus = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
-        const { status } = req.body;
+        const { status, rejectionReason } = req.body;
         const tenantId = (req as any).user?.tenantId;
 
         if (!tenantId) return res.status(401).json({ message: 'Unauthorized' });
 
         const updatedLeave = await prisma.leave.update({
             where: { id: Number(id), tenantId },
-            data: { status },
-             include: {
-        leaveType: true,
-        user: {
-          select: { id: true, name: true },
-        },
-      },
-
+            data: { 
+                status,
+                rejectionReason: status === 'REJECTED' ? rejectionReason : null
+            },
+            include: {
+                leaveType: true,
+                user: {
+                    select: { id: true, name: true },
+                },
+            },
         });
          await createNotification({
       tenantId,
