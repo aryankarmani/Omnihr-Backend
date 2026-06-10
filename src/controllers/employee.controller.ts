@@ -495,9 +495,16 @@ export const getEmployee = async (req: Request, res: Response) => {
 // Update Employee Profile (Personal, Statutory, Bank)
 export const updateEmployee = async (req: Request, res: Response) => {
     try {
-        const { id } = req.params;
-        const userId = Number(id);
+        // const { id } = req.params;
+        const paramId = req.params.id;
+        const userId =
+            paramId === 'me'
+                ? Number((req as any).user?.id)
+                : Number(paramId);
 
+if (!userId || Number.isNaN(userId)) {
+  return res.status(400).json({ message: 'Invalid employee id' });
+}
         const {
             // User model
             name, email,
@@ -522,7 +529,7 @@ export const updateEmployee = async (req: Request, res: Response) => {
 
         const existingEmployee = await prisma.user.findFirst({
             where: {
-                id: Number(id),
+                id: userId,
                 tenantId,
             },
         });
@@ -573,9 +580,9 @@ export const updateEmployee = async (req: Request, res: Response) => {
 
         // Upsert Profile
         const updatedProfile = await prisma.employeeProfile.upsert({
-            where: { userId: Number(id) },
+            where: { userId: userId },
             create: {
-                userId: Number(id),
+                userId: userId,
                 tenantId,
                 title, department, location, phone, status, dob: dob ? new Date(dob) : undefined, bloodGroup, address,
                 departmentId: finalDepartmentId,
@@ -641,7 +648,7 @@ export const updateEmployee = async (req: Request, res: Response) => {
         // Update User Model if name or email changed
         if (name || email) {
             await prisma.user.update({
-                where: { id: Number(id) },
+                where: { id: userId },
                 data: {
                     ...(name && { name }),
                     ...(email && { email })
@@ -651,7 +658,7 @@ export const updateEmployee = async (req: Request, res: Response) => {
 
         await createNotification({
             tenantId,
-            userId: Number(id),
+            userId: userId,
             title: 'Profile Updated',
             message: 'Your employee profile has been updated by admin.',
             type: 'employee',
@@ -669,6 +676,11 @@ export const addDocument = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
         const file = req.file;
+        const tenantId = (req as any).user?.tenantId;
+
+        if (!tenantId) {
+            return res.status(401).json({ message: "Unauthorized" });
+        }
 
         if (!file) {
             return res.status(400).json({ message: 'File is required' });
@@ -678,13 +690,23 @@ export const addDocument = async (req: Request, res: Response) => {
         const type = req.body.type || file.mimetype;
 
         // Find Profile ID first
-        const profile = await prisma.employeeProfile.findUnique({ where: { userId: Number(id) } });
+         const profile = await prisma.employeeProfile.findFirst({
+      where: {
+        userId: Number(id),
+        tenantId,
+        isActive: true,
+        deletedAt: null,
+      },
+    });
         if (!profile) return res.status(404).json({ message: 'Profile not found. Create profile first.' });
 
         // Overwrite if same file type already exists
         const existingDoc = await prisma.document.findFirst({
-            where: { profileId: profile.id, name }
-        });
+      where: {
+        profileId: profile.id,
+        name,
+      },
+    });
 
         if (existingDoc) {
             await prisma.document.delete({ where: { id: existingDoc.id } });
@@ -780,15 +802,44 @@ export const deleteEmployee = async (req: Request, res: Response) => {
     }
 };
 
-// Delete Document
 export const deleteDocument = async (req: Request, res: Response) => {
-    try {
-        const { docId } = req.params;
-        await prisma.document.delete({ where: { id: Number(docId) } });
-        res.json({ message: 'Document deleted' });
-    } catch (error) {
-        res.status(500).json({ message: 'Server error' });
+  try {
+    const { id, docId } = req.params;
+    const tenantId = (req as any).user?.tenantId;
+
+    if (!tenantId) {
+      return res.status(401).json({ message: "Unauthorized" });
     }
+
+    // UPDATED: tenant-safe document lookup
+    const document = await prisma.document.findFirst({
+      where: {
+        id: Number(docId),
+        profile: {
+          userId: Number(id),
+          tenantId,
+        },
+      },
+    });
+
+    if (!document) {
+      return res.status(404).json({
+        message: "Document not found",
+      });
+    }
+
+    await prisma.document.delete({
+      where: { id: Number(docId) },
+    });
+
+    return res.json({ message: "Document deleted successfully" });
+  } catch (error: any) {
+    console.error("Delete document error:", error);
+    return res.status(500).json({
+      message: "Server error",
+      error: error.message,
+    });
+  }
 };
 
 // Get profile of the currently logged-in user
