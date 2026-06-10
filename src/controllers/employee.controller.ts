@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { createNotification, notifyAdmins } from '../utils/notification';
 import { getManagerTeamMemberIds } from "../utils/teamScope";
-import bcrypt from "bcryptjs"; 
+import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { sendMail, employeeWelcomeTemplate } from "../utils/mail";
 
@@ -11,37 +11,37 @@ const prisma = new PrismaClient();
 
 // ✅ ADDED: Generates strong random password for every employee
 const generateRandomPassword = () => {
-  const upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-  const lower = "abcdefghijklmnopqrstuvwxyz";
-  const numbers = "0123456789";
-  const symbols = "@#$!";
-  const all = upper + lower + numbers + symbols;
+    const upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const lower = "abcdefghijklmnopqrstuvwxyz";
+    const numbers = "0123456789";
+    const symbols = "@#$!";
+    const all = upper + lower + numbers + symbols;
 
-  let password =
-    upper[crypto.randomInt(upper.length)] +
-    lower[crypto.randomInt(lower.length)] +
-    numbers[crypto.randomInt(numbers.length)] +
-    symbols[crypto.randomInt(symbols.length)];
+    let password =
+        upper[crypto.randomInt(upper.length)] +
+        lower[crypto.randomInt(lower.length)] +
+        numbers[crypto.randomInt(numbers.length)] +
+        symbols[crypto.randomInt(symbols.length)];
 
-  for (let i = 0; i < 8; i++) {
-    password += all[crypto.randomInt(all.length)];
-  }
+    for (let i = 0; i < 8; i++) {
+        password += all[crypto.randomInt(all.length)];
+    }
 
-  return password
-    .split("")
-    .sort(() => crypto.randomInt(3) - 1)
-    .join("");
+    return password
+        .split("")
+        .sort(() => crypto.randomInt(3) - 1)
+        .join("");
 };
 
 // ✅ ADDED: Gets frontend URL from request origin, not .env
 const getFrontendLoginUrl = (req: Request) => {
-  const origin = req.headers.origin;
+    const origin = req.headers.origin;
 
-  if (origin && origin.startsWith("http")) {
-    return `${origin}/login`;
-  }
+    if (origin && origin.startsWith("http")) {
+        return `${origin}/login`;
+    }
 
-  return "http://localhost:5173/login";
+    return "http://localhost:5173/login";
 };
 
 const employeeInclude = {
@@ -59,7 +59,24 @@ const employeeInclude = {
         },
     },
     role: true,
-    manager: true,
+    manager: {
+        include: {
+            employeeProfile: true
+        }
+    },
+    teamMembers: {
+        include: {
+            team: {
+                include: {
+                    manager: {
+                        include: {
+                            employeeProfile: true
+                        }
+                    }
+                }
+            }
+        }
+    }
 };
 
 const getOrCreateRoleId = async (
@@ -313,13 +330,13 @@ export const createEmployee = async (req: Request, res: Response) => {
 
             // ✅ CHANGED: Always generate random password for every employee
             const hashedPassword = await bcrypt.hash(plainPassword, 10);
-            
+
             // 1. Create User
             const user = await tx.user.create({
                 data: {
                     name,
                     email,
-                   password: hashedPassword, // Default password
+                    password: hashedPassword, // Default password
                     tenantId,
                     roleId: finalRoleId,
                     isActive: true, // ✅ ADDED: ensure login query can find user
@@ -383,7 +400,7 @@ export const createEmployee = async (req: Request, res: Response) => {
                 }
             });
 
-    
+
             const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
             if (files) {
                 const docPromises = [];
@@ -477,7 +494,24 @@ export const getEmployee = async (req: Request, res: Response) => {
                     }
                 },
                 role: true,
-                manager: true
+                manager: {
+                    include: {
+                        employeeProfile: true
+                    }
+                },
+                teamMembers: {
+                    include: {
+                        team: {
+                            include: {
+                                manager: {
+                                    include: {
+                                        employeeProfile: true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         });
 
@@ -495,12 +529,8 @@ export const getEmployee = async (req: Request, res: Response) => {
 // Update Employee Profile (Personal, Statutory, Bank)
 export const updateEmployee = async (req: Request, res: Response) => {
     try {
-        // const { id } = req.params;
-        const paramId = req.params.id;
-        const userId =
-            paramId === 'me'
-                ? Number((req as any).user?.id)
-                : Number(paramId);
+        const { id } = req.params;
+        const userId = id === 'me' ? (req as any).user?.id : Number(id);
 
 if (!userId || Number.isNaN(userId)) {
   return res.status(400).json({ message: 'Invalid employee id' });
@@ -552,7 +582,7 @@ if (!userId || Number.isNaN(userId)) {
             tenantId,
             prisma,
             designationId,
-           title || "Employee"
+            title || "Employee"
         );
 
         await prisma.user.update({
@@ -865,7 +895,24 @@ export const getCurrentEmployee = async (req: Request, res: Response) => {
                     }
                 },
                 role: true,
-                manager: true
+                manager: {
+                    include: {
+                        employeeProfile: true
+                    }
+                },
+                teamMembers: {
+                    include: {
+                        team: {
+                            include: {
+                                manager: {
+                                    include: {
+                                        employeeProfile: true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         });
 
