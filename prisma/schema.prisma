@@ -194,6 +194,7 @@ model Leave {
   startDate DateTime
   endDate   DateTime
   status    String   @default("PENDING")
+  rejectionReason String?
 
   // Relations
   userId   Int
