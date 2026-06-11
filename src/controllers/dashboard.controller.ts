@@ -3,6 +3,15 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
+// ADDED: Local date formatter to avoid UTC issues
+const getLocalDateString = (date = new Date()) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+
+    return `${year}-${month}-${day}`;
+};
+
 // In a real multi-tenant app, you'd extract tenantId from req.user
 // Assuming the user token middleware sets req.user
 
@@ -117,7 +126,7 @@ export const getStats = async (req: Request, res: Response) => {
         // UPDATED: Dashboard Avg Attendance = Today only
 // Formula: today's present or late employees / total active employees * 100
 
-const todayStr = today.toISOString().split('T')[0];
+const todayStr = getLocalDateString(today);
 
 const todayAttendanceCount = await prisma.attendanceRecord.count({
     where: {

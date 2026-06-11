@@ -40,3 +40,21 @@ export const authenticate = (
     });
   }
 };
+// ADDED: Role permission middleware
+export const authorize = (allowedRoles: string[]) => {
+  return (req: AuthRequest, res: Response, next: NextFunction) => {
+    const role = req.user?.role;
+
+    if (!role) {
+      return res.status(403).json({ message: "Role not found in token" });
+    }
+
+    if (!allowedRoles.includes(role)) {
+      return res.status(403).json({
+        message: "You do not have permission to perform this action",
+      });
+    }
+
+    next();
+  };
+};

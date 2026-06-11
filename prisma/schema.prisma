@@ -194,6 +194,7 @@ model Leave {
   startDate DateTime
   endDate   DateTime
   status    String   @default("PENDING")
+  rejectionReason String?
 
   // Relations
   userId   Int
@@ -734,4 +735,14 @@ model AttendanceRegularization {
   @@index([tenantId])
   @@index([userId])
   @@index([status])
+}
+
+model CompanySetting {
+  id                  Int      @id @default(autoincrement())
+  tenantId            String   @unique
+  authorizedSignName  String?
+  authorizedSignTitle String?
+  authorizedSignImage String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 }

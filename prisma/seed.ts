@@ -83,21 +83,59 @@ async function main() {
     const hashedAdminPassword = await bcrypt.hash('password123', 10);
     const hashedEmployeePassword = await bcrypt.hash('password123', 10);
 
-    // 3. Create Users
-    // Admin
-    await prisma.user.upsert({
-        where: { email_tenantId: { email: 'admin@example.com', tenantId: tenant.id } },
-        update: {
-            password: hashedAdminPassword,
-        },
-        create: {
+   // Admin
+const admin = await prisma.user.upsert({
+    where: {
+        email_tenantId: {
             email: 'admin@example.com',
-            password: hashedAdminPassword,
-            name: 'System Admin',
             tenantId: tenant.id,
-            roleId: adminRole.id
-        }
-    });
+        },
+    },
+    update: {
+        password: hashedAdminPassword,
+        name: 'System Admin',
+        roleId: adminRole.id,
+        isActive: true,
+        deletedAt: null,
+    },
+    create: {
+        email: 'admin@example.com',
+        password: hashedAdminPassword,
+        name: 'System Admin',
+        tenantId: tenant.id,
+        roleId: adminRole.id,
+        isActive: true,
+        deletedAt: null,
+    },
+});
+
+// ✅ ADDED: Create employee profile for HR Admin/System Admin
+await prisma.employeeProfile.upsert({
+    where: {
+        userId: admin.id,
+    },
+    update: {
+        tenantId: tenant.id,
+        title: 'System Admin',
+        department: 'HR',
+        location: 'Head Office',
+        joiningDate: new Date(),
+        status: 'Active',
+        isActive: true,
+        deletedAt: null,
+    },
+    create: {
+        userId: admin.id,
+        tenantId: tenant.id,
+        title: 'System Admin',
+        department: 'HR',
+        location: 'Head Office',
+        joiningDate: new Date(),
+        status: 'Active',
+        isActive: true,
+        deletedAt: null,
+    },
+});
 
     // Employee
     const employee = await prisma.user.upsert({
