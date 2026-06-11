@@ -1,22 +1,24 @@
 import express from "express";
-import multer from "multer";
+//import multer from "multer";
 import {
   uploadAuthorizedSignature,
   getCompanySetting,
 } from "../controllers/companySetting.controller";
-import { authenticate } from "../middleware/auth";
+import { authenticate, authorize } from "../middleware/auth";
+import { upload } from "../middleware/upload";
 
 const router = express.Router();
 
-const upload = multer({
-  dest: "uploads/signatures",
-});
+// const upload = multer({
+//   dest: "uploads/signatures",
+// });
 
 router.get("/", authenticate, getCompanySetting);
 
 router.post(
   "/authorized-signature",
   authenticate,
+  authorize(["HR_ADMIN", "SYSTEM_ADMIN"]),
   upload.single("signature"),
   uploadAuthorizedSignature
 );

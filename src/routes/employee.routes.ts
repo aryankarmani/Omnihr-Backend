@@ -12,11 +12,11 @@ router.post('/', authenticate, upload.fields([
     { name: 'pan', maxCount: 1 },
     { name: 'degree', maxCount: 1 }
 ]), createEmployee);
+
 router.get('/me', authenticate, getCurrentEmployee);
-router.get('/:id', authenticate, getEmployee);
-router.put('/:id', authenticate, updateEmployee);
-router.delete('/:id', authenticate, deleteEmployee);
 router.put('/me', authenticate, updateEmployee);
+
+
 // UPDATED: HR_ADMIN and SYSTEM_ADMIN can upload employee documents
 router.post(
   "/:id/documents",
@@ -33,4 +33,9 @@ router.delete(
   authorize(["HR_ADMIN", "SYSTEM_ADMIN"]),
   deleteDocument
 );
+
+
+router.get('/:id', authenticate, getEmployee);
+router.put('/:id', authenticate, updateEmployee);
+router.delete('/:id', authenticate, deleteEmployee);
 export default router;
