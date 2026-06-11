@@ -5,8 +5,8 @@ const prisma = new PrismaClient();
 
 export const getCompanySetting = async (req: Request, res: Response) => {
   try {
-    const user = (req as any).user;
-    const tenantId = user?.tenantId;
+    //const user = (req as any).user;
+    const tenantId = (req as any).user?.tenantId;
 
     if (!tenantId) {
       return res.status(400).json({ message: "Tenant ID required" });
@@ -27,14 +27,20 @@ export const getCompanySetting = async (req: Request, res: Response) => {
 
 export const uploadAuthorizedSignature = async (req: Request, res: Response) => {
   try {
-    const user = (req as any).user;
-    const tenantId = user?.tenantId;
+    //const user = (req as any).user;
+    const tenantId = (req as any).user?.tenantId;
 
     const { authorizedSignName, authorizedSignTitle } = req.body;
 
     if (!tenantId) {
       return res.status(400).json({ message: "Tenant ID required" });
     }
+     if (!authorizedSignName || !authorizedSignTitle) {
+      return res.status(400).json({
+        message: "Authorized sign name and title are required",
+      });
+    }
+
 
     if (!req.file) {
       return res.status(400).json({ message: "Signature image is required" });
