@@ -108,6 +108,23 @@ export const punchToggle = async (req: AuthRequest, res: Response) => {
         });
 
         if (!record) {
+            // Check if there is an approved leave overlapping today
+            const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+            const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+            const approvedLeave = await prisma.leave.findFirst({
+                where: {
+                    userId,
+                    status: 'APPROVED',
+                    startDate: { lte: endOfDay },
+                    endDate: { gte: startOfDay }
+                }
+            });
+
+            if (approvedLeave) {
+                return res.status(400).json({ message: 'You are on leave today. Punch-in is disabled.' });
+            }
+
             // Punch In
             // Simple Late Mark Logic: After 09:30 AM is late
             let status = 'Present';
