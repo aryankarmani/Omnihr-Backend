@@ -514,12 +514,30 @@ export const getEmployee = async (req: Request, res: Response) => {
                 }
             }
         });
+        const companySetting = await prisma.companySetting.findUnique({
+            where: { tenantId }
+        });
 
         if (!employee) {
             return res.status(404).json({ message: 'Employee not found' });
         }
 
-        res.json(employee);
+        res.json({
+            ...employee,
+
+            companySetting: {
+                authorizedSignName:
+                    companySetting?.authorizedSignName || "",
+
+                authorizedSignTitle:
+                    companySetting?.authorizedSignTitle || "",
+
+                authorizedSignature:
+                    companySetting?.authorizedSignImage
+                        ? `/uploads/signatures/${companySetting.authorizedSignImage}`
+                        : null,
+            }
+        });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server error' });

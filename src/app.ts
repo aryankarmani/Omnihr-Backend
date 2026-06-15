@@ -24,7 +24,7 @@ import companySettingRoutes from "./routes/companySetting.routes";
 
 app.use(cors());
 app.use(express.json());
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+app.use('/uploads', express.static(path.join(process.cwd(), "uploads")));
 
 app.set('etag', false);
 
@@ -51,8 +51,8 @@ app.use('/api/leave', leaveRoutes);
 app.use('/api/teams', teamRoutes);
 app.use('/api/dashboard', require('./routes/dashboard.routes').default);
 app.use('/api/reports', authenticate,reportRoutes);
-
+app.use("/api/company-setting", companySettingRoutes);
 app.use("/api/company-settings", companySettingRoutes);
-app.use("/uploads", express.static("uploads"));
+//app.use("/uploads", express.static("uploads"));
 
 export { app, prisma };

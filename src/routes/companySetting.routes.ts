@@ -3,6 +3,7 @@ import express from "express";
 import {
   uploadAuthorizedSignature,
   getCompanySetting,
+  deleteAuthorizedSignature,
 } from "../controllers/companySetting.controller";
 import { authenticate, authorize } from "../middleware/auth";
 import { upload } from "../middleware/upload";
@@ -21,6 +22,13 @@ router.post(
   authorize(["HR_ADMIN", "SYSTEM_ADMIN"]),
   upload.single("signature"),
   uploadAuthorizedSignature
+);
+
+router.delete(
+  "/authorized-signature",
+  authenticate,
+  authorize(["HR_ADMIN", "SYSTEM_ADMIN"]),
+  deleteAuthorizedSignature
 );
 
 export default router;
