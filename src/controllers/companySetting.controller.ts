@@ -60,13 +60,20 @@ export const uploadAuthorizedSignature = async (req: Request, res: Response) => 
       return res.status(400).json({ message: "Tenant ID required" });
     }
 
-    if (!req.file) {
-      return res.status(400).json({ message: "Signature image is required" });
-    }
+    // if (!req.file) {
+    //   return res.status(400).json({ message: "Signature image is required" });
+    // }
 
     const oldSetting = await prisma.companySetting.findUnique({
       where: { tenantId },
     });
+
+    const newFileName = req.file?.filename || oldSetting?.authorizedSignImage || null;
+
+    if (!newFileName) {
+      return res.status(400).json({ message: "Signature image is required" });
+    }
+
 
     const setting = await prisma.companySetting.upsert({
       where: { tenantId },
@@ -74,19 +81,21 @@ export const uploadAuthorizedSignature = async (req: Request, res: Response) => 
         tenantId,
         authorizedSignName,
         authorizedSignTitle,
-        authorizedSignImage: req.file.filename,
+        authorizedSignImage: newFileName,
       },
       update: {
         authorizedSignName,
         authorizedSignTitle,
-        authorizedSignImage: req.file.filename,
+        authorizedSignImage: newFileName,
       },
     });
 
+     // Delete old file only when new file is uploaded.
     if (
+      req.file &&
       oldSetting?.authorizedSignImage &&
       oldSetting.authorizedSignImage !== req.file.filename
-    ) {
+    )  {
       const oldFilePath = path.join(
         process.cwd(),
         "uploads",
