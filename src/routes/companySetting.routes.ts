@@ -23,9 +23,30 @@ router.post(
   upload.single("signature"),
   uploadAuthorizedSignature
 );
+router.put(
+  "/signature",
+  authenticate,
+  authorize(["HR_ADMIN", "SYSTEM_ADMIN"]),
+  upload.single("signature"), // ✅ same field name
+  uploadAuthorizedSignature
+);
 
+/**
+ * ✅ OLD delete route support
+ */
 router.delete(
   "/authorized-signature",
+  authenticate,
+  authorize(["HR_ADMIN", "SYSTEM_ADMIN"]),
+  deleteAuthorizedSignature
+);
+
+/**
+ * ✅ NEW delete route support:
+ * Frontend calls this route, so this fixes your 404.
+ */
+router.delete(
+  "/signature",
   authenticate,
   authorize(["HR_ADMIN", "SYSTEM_ADMIN"]),
   deleteAuthorizedSignature
