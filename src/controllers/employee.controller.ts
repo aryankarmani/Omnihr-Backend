@@ -9,6 +9,39 @@ import { sendMail, employeeWelcomeTemplate } from "../utils/mail";
 
 const prisma = new PrismaClient();
 
+// ✅ ADDED: calculate salary total
+const calculateSalaryTotal = (salary: any) => {
+    if (!salary) return 0;
+
+    return (
+        Number(salary.basic || 0) +
+        Number(salary.hra || 0) +
+        Number(salary.special || 0) +
+        Number(salary.medical || 0)
+    );
+};
+
+// ✅ ADDED: current month like "2026-06"
+const getCurrentSalaryMonth = () => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+};
+
+// ✅ ADDED: compare old salary and new salary
+const isSalaryChanged = (oldSalary: any, newSalary: any) => {
+    if (!oldSalary || !newSalary) return false;
+
+    return (
+        Number(oldSalary.basic || 0) !== Number(newSalary.basic || 0) ||
+        Number(oldSalary.hra || 0) !== Number(newSalary.hra || 0) ||
+        Number(oldSalary.special || 0) !== Number(newSalary.special || 0) ||
+        Number(oldSalary.medical || 0) !== Number(newSalary.medical || 0) ||
+        Number(oldSalary.pf || 0) !== Number(newSalary.pf || 0) ||
+        Number(oldSalary.pt || 0) !== Number(newSalary.pt || 0) ||
+        Number(oldSalary.tax || 0) !== Number(newSalary.tax || 0)
+    );
+};
+
 // ✅ ADDED: Generates strong random password for every employee
 const generateRandomPassword = () => {
     const upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -298,6 +331,7 @@ export const createEmployee = async (req: Request, res: Response) => {
             pf: Number(salary?.pf || 0),
             pt: Number(salary?.pt || 0),
             tax: Number(salary?.tax || 0),
+            totalSalary: calculateSalaryTotal(salary),
         };
 
         let targetRoleId = roleId;
@@ -544,58 +578,78 @@ export const getEmployee = async (req: Request, res: Response) => {
     }
 };
 
-// Update Employee Profile (Personal, Statutory, Bank)
+// Update Employee Profile (Personal, Statutory, Bank, Salary)
 export const updateEmployee = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
         const loggedInUser = (req as any).user;
+
         const userId =
             req.path === "/me" || !id
                 ? Number(loggedInUser?.id)
                 : Number(id);
-if (!userId || Number.isNaN(userId)) {
-  return res.status(400).json({ message: 'Invalid employee id' });
-}
-      const tenantId = loggedInUser?.tenantId;
-        if (!tenantId) return res.status(401).json({ message: 'Unauthorized' });
-        const {
-            // User model
-            name, email,
-            // Profile model
-            phone, dob, bloodGroup, address, role, roleId, location, department, title, status,
 
+        if (!userId || Number.isNaN(userId)) {
+            return res.status(400).json({ message: "Invalid employee id" });
+        }
+
+        const tenantId = loggedInUser?.tenantId;
+        if (!tenantId) {
+            return res.status(401).json({ message: "Unauthorized" });
+        }
+
+        const {
+            name,
+            email,
+            phone,
+            dob,
+            joiningDate,
+            bloodGroup,
+            address,
+            role,
+            roleId,
+            location,
+            department,
+            title,
+            status,
             departmentId,
             designationId,
             locationId,
             shiftId,
-
-            // Statutory
-            uan, pfNumber, esic, pan, aadhaar,
-            // Bank
-            bankName, accountNumber, ifsc,
-            // Salary
-            salary
+            uan,
+            pfNumber,
+            esic,
+            pan,
+            aadhaar,
+            bankName,
+            accountNumber,
+            ifsc,
+            salary,
+            salaryMonth, // ✅ Example: "2026-06"
         } = req.body;
-
-        // const tenantId = (req as any).user?.tenantId;
-        // if (!tenantId) return res.status(401).json({ message: 'Unauthorized' });
 
         const existingEmployee = await prisma.user.findFirst({
             where: {
                 id: userId,
                 tenantId,
-                 isActive: true,
+                isActive: true,
                 deletedAt: null,
             },
         });
 
         if (!existingEmployee) {
-            return res.status(404).json({ message: 'Employee not found' });
+            return res.status(404).json({ message: "Employee not found" });
         }
+
+        const oldProfile = await prisma.employeeProfile.findUnique({
+            where: { userId },
+            include: {
+                salary: true,
+            },
+        });
 
         const finalRoleId = await getOrCreateRoleId(tenantId, roleId, role);
 
-        // UPDATED: auto-create/find department and designation masters
         const finalDepartmentId = await getOrCreateDepartmentId(
             tenantId,
             prisma,
@@ -610,7 +664,7 @@ if (!userId || Number.isNaN(userId)) {
             title || "Employee"
         );
 
-          await prisma.user.update({
+        await prisma.user.update({
             where: { id: userId },
             data: {
                 ...(name && { name }),
@@ -619,21 +673,25 @@ if (!userId || Number.isNaN(userId)) {
             },
         });
 
-        // NEW UPDATE: Convert salary string values into numbers
-        const salaryData = {
-            basic: Number(salary?.basic || 0),
-            hra: Number(salary?.hra || 0),
-            special: Number(salary?.special || 0),
-            medical: Number(salary?.medical || 0),
-            pf: Number(salary?.pf || 0),
-            pt: Number(salary?.pt || 0),
-            tax: Number(salary?.tax || 0),
-        };
+        const finalSalaryMonth = salaryMonth || getCurrentSalaryMonth();
+        const hasSalaryInRequest = !!salary;
 
+        const salaryData = hasSalaryInRequest
+            ? {
+                basic: Number(salary?.basic || 0),
+                hra: Number(salary?.hra || 0),
+                special: Number(salary?.special || 0),
+                medical: Number(salary?.medical || 0),
+                pf: Number(salary?.pf || 0),
+                pt: Number(salary?.pt || 0),
+                tax: Number(salary?.tax || 0),
+                totalSalary: calculateSalaryTotal(salary),
+            }
+            : null;
 
-       // ✅ FIXED: upsert creates profile if admin/old user has no profile
         const updatedProfile = await prisma.employeeProfile.upsert({
             where: { userId },
+
             create: {
                 userId,
                 tenantId,
@@ -643,13 +701,14 @@ if (!userId || Number.isNaN(userId)) {
                 phone: phone || null,
                 status: status || "Active",
                 dob: dob ? new Date(dob) : null,
+                joiningDate: joiningDate ? new Date(joiningDate) : new Date(),
                 bloodGroup: bloodGroup || null,
                 address: address || null,
                 departmentId: finalDepartmentId,
                 designationId: finalDesignationId,
                 locationId: locationId || null,
                 shiftId: shiftId || null,
-                joiningDate: new Date(),
+                
                 isActive: true,
                 deletedAt: null,
 
@@ -671,10 +730,13 @@ if (!userId || Number.isNaN(userId)) {
                     },
                 },
 
-                salary: {
-                    create: salaryData,
-                },
+                ...(salaryData && {
+                    salary: {
+                        create: salaryData,
+                    },
+                }),
             },
+
             update: {
                 title: title || "Employee",
                 department: department || null,
@@ -682,6 +744,11 @@ if (!userId || Number.isNaN(userId)) {
                 phone: phone || null,
                 status: status || "Active",
                 dob: dob ? new Date(dob) : null,
+
+                // ✅ ADDED: Update joining date when edited from frontend
+                ...(joiningDate && {
+                    joiningDate: new Date(joiningDate),
+                }),
                 bloodGroup: bloodGroup || null,
                 address: address || null,
                 departmentId: finalDepartmentId,
@@ -725,140 +792,187 @@ if (!userId || Number.isNaN(userId)) {
                     },
                 },
 
-                salary: {
-                    upsert: {
-                        create: salaryData,
-                        update: salaryData,
+                ...(salaryData && {
+                    salary: {
+                        upsert: {
+                            create: salaryData,
+                            update: salaryData,
+                        },
                     },
-                },
+                }),
             },
         });
-        // // Update User Model if name or email changed
-        // if (name || email) {
-        //     await prisma.user.update({
-        //         where: { id: userId },
-        //         data: {
-        //             ...(name && { name }),
-        //             ...(email && { email })
-        //         }
-        //     });
-        // }
+
+        // ✅ Store salary month-wise only when salary changed
+        if (
+            salaryData &&
+            oldProfile &&
+            isSalaryChanged(oldProfile.salary, salaryData)
+        ) {
+            await prisma.salaryRevision.upsert({
+                where: {
+                    profileId_salaryMonth: {
+                        profileId: oldProfile.id,
+                        salaryMonth: finalSalaryMonth,
+                    },
+                },
+                create: {
+                    profileId: oldProfile.id,
+                    tenantId,
+                    salaryMonth: finalSalaryMonth,
+
+                    previousBasic: Number(oldProfile.salary?.basic || 0),
+                    previousHra: Number(oldProfile.salary?.hra || 0),
+                    previousSpecial: Number(oldProfile.salary?.special || 0),
+                    previousMedical: Number(oldProfile.salary?.medical || 0),
+                    previousPf: Number(oldProfile.salary?.pf || 0),
+                    previousPt: Number(oldProfile.salary?.pt || 0),
+                    previousTax: Number(oldProfile.salary?.tax || 0),
+                    previousTotal: calculateSalaryTotal(oldProfile.salary),
+
+                    updatedBasic: salaryData.basic,
+                    updatedHra: salaryData.hra,
+                    updatedSpecial: salaryData.special,
+                    updatedMedical: salaryData.medical,
+                    updatedPf: salaryData.pf,
+                    updatedPt: salaryData.pt,
+                    updatedTax: salaryData.tax,
+                    updatedTotal: salaryData.totalSalary,
+
+                    updatedById: loggedInUser?.id || null,
+                },
+                update: {
+                    updatedBasic: salaryData.basic,
+                    updatedHra: salaryData.hra,
+                    updatedSpecial: salaryData.special,
+                    updatedMedical: salaryData.medical,
+                    updatedPf: salaryData.pf,
+                    updatedPt: salaryData.pt,
+                    updatedTax: salaryData.tax,
+                    updatedTotal: salaryData.totalSalary,
+                    updatedById: loggedInUser?.id || null,
+                },
+            });
+        }
 
         await createNotification({
             tenantId,
-            userId: userId,
-            title: 'Profile Updated',
-            message: 'Your employee profile has been updated by admin.',
-            type: 'employee',
+            userId,
+            title: "Profile Updated",
+            message: "Your employee profile has been updated by admin.",
+            type: "employee",
         });
 
-        res.json(updatedProfile);
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server error' });
+        return res.json(updatedProfile);
+    } catch (error: any) {
+        console.error("Update employee error:", error);
+        return res.status(500).json({
+            message: "Server error",
+            error: error.message,
+        });
     }
 };
 
 // Add Document
 export const addDocument = async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const file = req.file;
-    const tenantId = (req as any).user?.tenantId;
+    try {
+        const { id } = req.params;
+        const file = req.file;
+        const tenantId = (req as any).user?.tenantId;
 
-    if (!tenantId) {
-      return res.status(401).json({ message: "Unauthorized" });
+        if (!tenantId) {
+            return res.status(401).json({ message: "Unauthorized" });
+        }
+
+        if (!file) {
+            return res.status(400).json({ message: "File is required" });
+        }
+
+        const userId = Number(id);
+
+        if (!userId || Number.isNaN(userId)) {
+            return res.status(400).json({ message: "Invalid employee id" });
+        }
+
+        // ✅ ADDED: Check user exists first
+        const user = await prisma.user.findFirst({
+            where: {
+                id: userId,
+                tenantId,
+                isActive: true,
+                deletedAt: null,
+            },
+            include: {
+                role: true,
+            },
+        });
+
+        if (!user) {
+            return res.status(404).json({ message: "Employee user not found" });
+        }
+
+        // ✅ CHANGED: Find profile, and if missing create it
+        let profile = await prisma.employeeProfile.findFirst({
+            where: {
+                userId,
+                tenantId,
+                isActive: true,
+                deletedAt: null,
+            },
+        });
+
+        // ✅ ADDED: Auto-create EmployeeProfile for HR Admin/System Admin/old users
+        if (!profile) {
+            profile = await prisma.employeeProfile.create({
+                data: {
+                    userId,
+                    tenantId,
+                    title: user.role?.name === "HR_ADMIN" ? "System Admin" : "Employee",
+                    department: user.role?.name === "HR_ADMIN" ? "HR" : null,
+                    location: "Head Office",
+                    joiningDate: new Date(),
+                    status: "Active",
+                    isActive: true,
+                    deletedAt: null,
+                },
+            });
+        }
+
+        const name = req.body.name || file.originalname;
+        const type = req.body.type || file.mimetype;
+
+        // ✅ Existing same document name delete, then upload new
+        const existingDoc = await prisma.document.findFirst({
+            where: {
+                profileId: profile.id,
+                name,
+            },
+        });
+
+        if (existingDoc) {
+            await prisma.document.delete({
+                where: { id: existingDoc.id },
+            });
+        }
+
+        const doc = await prisma.document.create({
+            data: {
+                profileId: profile.id,
+                name,
+                url: file.filename,
+                type,
+                originalName: file.originalname,
+            },
+        });
+
+        return res.status(201).json(doc);
+    } catch (error: any) {
+        console.error("Add document error:", error);
+        return res.status(500).json({
+            message: "Server error",
+            error: error.message,
+        });
     }
-
-    if (!file) {
-      return res.status(400).json({ message: "File is required" });
-    }
-
-    const userId = Number(id);
-
-    if (!userId || Number.isNaN(userId)) {
-      return res.status(400).json({ message: "Invalid employee id" });
-    }
-
-    // ✅ ADDED: Check user exists first
-    const user = await prisma.user.findFirst({
-      where: {
-        id: userId,
-        tenantId,
-        isActive: true,
-        deletedAt: null,
-      },
-      include: {
-        role: true,
-      },
-    });
-
-    if (!user) {
-      return res.status(404).json({ message: "Employee user not found" });
-    }
-
-    // ✅ CHANGED: Find profile, and if missing create it
-    let profile = await prisma.employeeProfile.findFirst({
-      where: {
-        userId,
-        tenantId,
-        isActive: true,
-        deletedAt: null,
-      },
-    });
-
-    // ✅ ADDED: Auto-create EmployeeProfile for HR Admin/System Admin/old users
-    if (!profile) {
-      profile = await prisma.employeeProfile.create({
-        data: {
-          userId,
-          tenantId,
-          title: user.role?.name === "HR_ADMIN" ? "System Admin" : "Employee",
-          department: user.role?.name === "HR_ADMIN" ? "HR" : null,
-          location: "Head Office",
-          joiningDate: new Date(),
-          status: "Active",
-          isActive: true,
-          deletedAt: null,
-        },
-      });
-    }
-
-    const name = req.body.name || file.originalname;
-    const type = req.body.type || file.mimetype;
-
-    // ✅ Existing same document name delete, then upload new
-    const existingDoc = await prisma.document.findFirst({
-      where: {
-        profileId: profile.id,
-        name,
-      },
-    });
-
-    if (existingDoc) {
-      await prisma.document.delete({
-        where: { id: existingDoc.id },
-      });
-    }
-
-    const doc = await prisma.document.create({
-      data: {
-        profileId: profile.id,
-        name,
-        url: file.filename,
-        type,
-        originalName: file.originalname,
-      },
-    });
-
-    return res.status(201).json(doc);
-  } catch (error: any) {
-    console.error("Add document error:", error);
-    return res.status(500).json({
-      message: "Server error",
-      error: error.message,
-    });
-  }
 };
 // Delete Employee
 export const deleteEmployee = async (req: Request, res: Response) => {
@@ -934,43 +1048,43 @@ export const deleteEmployee = async (req: Request, res: Response) => {
 };
 
 export const deleteDocument = async (req: Request, res: Response) => {
-  try {
-    const { id, docId } = req.params;
-    const tenantId = (req as any).user?.tenantId;
+    try {
+        const { id, docId } = req.params;
+        const tenantId = (req as any).user?.tenantId;
 
-    if (!tenantId) {
-      return res.status(401).json({ message: "Unauthorized" });
+        if (!tenantId) {
+            return res.status(401).json({ message: "Unauthorized" });
+        }
+
+        // UPDATED: tenant-safe document lookup
+        const document = await prisma.document.findFirst({
+            where: {
+                id: Number(docId),
+                profile: {
+                    userId: Number(id),
+                    tenantId,
+                },
+            },
+        });
+
+        if (!document) {
+            return res.status(404).json({
+                message: "Document not found",
+            });
+        }
+
+        await prisma.document.delete({
+            where: { id: Number(docId) },
+        });
+
+        return res.json({ message: "Document deleted successfully" });
+    } catch (error: any) {
+        console.error("Delete document error:", error);
+        return res.status(500).json({
+            message: "Server error",
+            error: error.message,
+        });
     }
-
-    // UPDATED: tenant-safe document lookup
-    const document = await prisma.document.findFirst({
-      where: {
-        id: Number(docId),
-        profile: {
-          userId: Number(id),
-          tenantId,
-        },
-      },
-    });
-
-    if (!document) {
-      return res.status(404).json({
-        message: "Document not found",
-      });
-    }
-
-    await prisma.document.delete({
-      where: { id: Number(docId) },
-    });
-
-    return res.json({ message: "Document deleted successfully" });
-  } catch (error: any) {
-    console.error("Delete document error:", error);
-    return res.status(500).json({
-      message: "Server error",
-      error: error.message,
-    });
-  }
 };
 
 // Get profile of the currently logged-in user
