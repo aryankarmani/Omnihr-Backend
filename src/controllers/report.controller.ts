@@ -883,3 +883,211 @@ export const exportLeaveBalance = async (
     });
   }
 };
+
+// ✅ ADDED: Convert salary object safely
+const toSalaryObject = (salary: any) => ({
+  basic: Number(salary?.basic || 0),
+  hra: Number(salary?.hra || 0),
+  special: Number(salary?.special || 0),
+  medical: Number(salary?.medical || 0),
+  pf: Number(salary?.pf || 0),
+  pt: Number(salary?.pt || 0),
+  tax: Number(salary?.tax || 0),
+  total: calculateSalary(salary),
+});
+
+// ✅ CHANGED: Salary is prorated only in joining month.
+// ✅ From next month, salary will be full month.
+const prorateSalaryByJoiningDate = (
+  salary: any,
+  joiningDate: Date | null | undefined,
+  salaryMonth: string
+) => {
+  const [year, month] = salaryMonth.split("-").map(Number);
+
+  const monthStart = new Date(year, month - 1, 1);
+  const monthEnd = new Date(year, month, 0);
+  const totalDays = monthEnd.getDate();
+
+  let payableDays = totalDays;
+
+  if (joiningDate) {
+    const join = new Date(joiningDate);
+
+    // ✅ If selected payslip month is before joining month
+    if (monthEnd < join) {
+      payableDays = 0;
+    }
+
+    // ✅ If selected payslip month is joining month
+    else if (
+      join.getFullYear() === year &&
+      join.getMonth() === month - 1
+    ) {
+      payableDays = totalDays - join.getDate() + 1;
+    }
+
+    // ✅ If selected payslip month is after joining month
+    else if (monthStart > join) {
+      payableDays = totalDays;
+    }
+  }
+
+  const ratio = payableDays / totalDays;
+
+  return {
+    payableDays,
+    totalDays,
+
+    basic: Math.round(Number(salary.basic || 0) * ratio),
+    hra: Math.round(Number(salary.hra || 0) * ratio),
+    special: Math.round(Number(salary.special || 0) * ratio),
+    medical: Math.round(Number(salary.medical || 0) * ratio),
+
+    pf: Math.round(Number(salary.pf || 0) * ratio),
+    pt: Math.round(Number(salary.pt || 0) * ratio),
+    tax: Math.round(Number(salary.tax || 0) * ratio),
+
+    total: Math.round(Number(salary.total || 0) * ratio),
+  };
+};
+
+// ✅ ADDED: Payslip API with month-wise salary + joining date proration
+export const getEmployeePayslip = async (req: Request, res: Response) => {
+  try {
+    const tenantId = getTenantId(req, res);
+    if (!tenantId) return;
+
+    const employeeId = Number(req.params.id);
+
+    if (!employeeId || Number.isNaN(employeeId)) {
+      return res.status(400).json({ message: "Invalid employee id" });
+    }
+
+    const salaryMonth =
+      String(req.query.salaryMonth || "").trim() ||
+      `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
+
+    const employee = await prisma.user.findFirst({
+      where: {
+        id: employeeId,
+        tenantId,
+        isActive: true,
+        deletedAt: null,
+      },
+      include: {
+        employeeProfile: {
+          include: {
+            salary: true,
+            departmentRef: true,
+            designationRef: true,
+
+            // ✅ ADDED: salary revision history
+            salaryHistory: {
+              orderBy: {
+                salaryMonth: "asc",
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!employee || !employee.employeeProfile) {
+      return res.status(404).json({ message: "Employee not found" });
+    }
+
+    const profile = employee.employeeProfile;
+
+    // ✅ ADDED: Block payslip before joining month
+if (profile.joiningDate) {
+  const join = new Date(profile.joiningDate);
+  const [year, month] = salaryMonth.split("-").map(Number);
+
+  // Selected payslip month end date
+  const selectedMonthEnd = new Date(year, month, 0);
+
+  // Example:
+  // Joining date = 13 May 2026
+  // April 2026 monthEnd = 30 Apr 2026, so block
+  // May 2026 monthEnd = 31 May 2026, so allow
+  if (selectedMonthEnd < join) {
+    return res.status(400).json({
+      message: `Payslip cannot be generated before joining month. Employee joined on ${join.toLocaleDateString("en-IN")}.`,
+    });
+  }
+}
+
+    // ✅ Find latest revision before or same selected month
+    const latestRevisionBeforeOrSame = profile.salaryHistory
+      .filter((item) => item.salaryMonth <= salaryMonth)
+      .sort((a, b) => b.salaryMonth.localeCompare(a.salaryMonth))[0];
+
+    // ✅ Find first revision after selected month
+    const firstRevisionAfter = profile.salaryHistory
+      .filter((item) => item.salaryMonth > salaryMonth)
+      .sort((a, b) => a.salaryMonth.localeCompare(b.salaryMonth))[0];
+
+    let selectedSalary: any;
+
+    if (latestRevisionBeforeOrSame) {
+      // ✅ Selected month is after salary update, use updated salary
+      selectedSalary = {
+        basic: latestRevisionBeforeOrSame.updatedBasic,
+        hra: latestRevisionBeforeOrSame.updatedHra,
+        special: latestRevisionBeforeOrSame.updatedSpecial,
+        medical: latestRevisionBeforeOrSame.updatedMedical,
+        pf: latestRevisionBeforeOrSame.updatedPf,
+        pt: latestRevisionBeforeOrSame.updatedPt,
+        tax: latestRevisionBeforeOrSame.updatedTax,
+        total: latestRevisionBeforeOrSame.updatedTotal,
+      };
+    } else if (firstRevisionAfter) {
+      // ✅ Selected month is before update, use previous salary
+      selectedSalary = {
+        basic: firstRevisionAfter.previousBasic,
+        hra: firstRevisionAfter.previousHra,
+        special: firstRevisionAfter.previousSpecial,
+        medical: firstRevisionAfter.previousMedical,
+        pf: firstRevisionAfter.previousPf,
+        pt: firstRevisionAfter.previousPt,
+        tax: firstRevisionAfter.previousTax,
+        total: firstRevisionAfter.previousTotal,
+      };
+    } else {
+      // ✅ No revision found, use current salary
+      selectedSalary = toSalaryObject(profile.salary);
+    }
+
+    const payableSalary = prorateSalaryByJoiningDate(
+      selectedSalary,
+      profile.joiningDate,
+      salaryMonth
+    );
+
+    return res.json({
+      employee: {
+        id: employee.id,
+        name: employee.name,
+        email: employee.email,
+        department: profile.departmentRef?.name || profile.department || "",
+        designation: profile.designationRef?.title || profile.title || "",
+        joiningDate: profile.joiningDate,
+      },
+
+      salaryMonth,
+
+      originalMonthlySalary: selectedSalary,
+
+      payableSalary,
+
+      salaryRevisionForMonth: latestRevisionBeforeOrSame || null,
+    });
+  } catch (error: any) {
+    console.error("Payslip error:", error);
+    return res.status(500).json({
+      message: "Failed to load payslip",
+      error: error.message,
+    });
+  }
+};

@@ -44,6 +44,8 @@ model Tenant {
   plan      String   @default("FREE")
   createdAt DateTime @default(now())
 
+  salaryRevisions SalaryRevision[]
+
   users             User[]
   roles             Role[]
   leaves            Leave[]
@@ -190,10 +192,10 @@ model Leave {
   leaveTypeId String
   leaveType   LeaveType @relation(fields: [leaveTypeId], references: [id])
 
-  reason    String
-  startDate DateTime
-  endDate   DateTime
-  status    String   @default("PENDING")
+  reason          String
+  startDate       DateTime
+  endDate         DateTime
+  status          String   @default("PENDING")
   rejectionReason String?
 
   // Relations
@@ -275,6 +277,8 @@ model EmployeeProfile {
   locationRef    Location?    @relation(fields: [locationId], references: [id])
   shiftRef       Shift?       @relation(fields: [shiftId], references: [id])
 
+  salaryHistory SalaryRevision[]
+
   phone       String?
   dob         DateTime?
   joiningDate DateTime?
@@ -351,6 +355,46 @@ model SalaryStructure {
   totalSalary  Float @default(0)
   lwpDays      Int   @default(0)
   lwpDeduction Float @default(0)
+}
+
+// ✅ ADDED: Stores month-wise salary changes
+model SalaryRevision {
+  id Int @id @default(autoincrement())
+
+  profileId Int
+  profile   EmployeeProfile @relation(fields: [profileId], references: [id])
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+
+  salaryMonth String // Example: "2026-06"
+
+  // Previous salary
+  previousBasic   Float @default(0)
+  previousHra     Float @default(0)
+  previousSpecial Float @default(0)
+  previousMedical Float @default(0)
+  previousPf      Float @default(0)
+  previousPt      Float @default(0)
+  previousTax     Float @default(0)
+  previousTotal   Float @default(0)
+
+  // Updated salary
+  updatedBasic   Float @default(0)
+  updatedHra     Float @default(0)
+  updatedSpecial Float @default(0)
+  updatedMedical Float @default(0)
+  updatedPf      Float @default(0)
+  updatedPt      Float @default(0)
+  updatedTax     Float @default(0)
+  updatedTotal   Float @default(0)
+
+  updatedById Int?
+  createdAt   DateTime @default(now())
+
+  @@unique([profileId, salaryMonth])
+  @@index([tenantId])
+  @@index([profileId])
 }
 
 // -- Masters Schema --
