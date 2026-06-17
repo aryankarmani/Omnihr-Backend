@@ -5,10 +5,11 @@ import {
   getDashboard,
   getAttendance,
   getPayroll,
-
+  getEmployeePayslip,
   exportMonthlyAttendance,
   exportLeaveBalance,
   exportSalaryRegister,
+  
 
 } from "../controllers/report.controller";
 
@@ -54,6 +55,8 @@ router.get(
   exportLeaveBalance
 );
 
+// ✅ ADDED: Employee monthly payslip
+router.get("/payslip/:id", getEmployeePayslip);
 // // ================= TEST APIs =================
 
 // // Attendance
