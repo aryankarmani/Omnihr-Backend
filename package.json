@@ -37,6 +37,7 @@
     "nodemailer": "^8.0.10",
     "nodemon": "^3.0.3",
     "pdfkit": "^0.18.0",
+    "pip": "^0.0.1",
     "prisma": "^5.10.0",
     "status": "^0.0.6",
     "typescript": "^5.3.3"
