@@ -29,6 +29,8 @@
     "dotenv": "^17.2.3",
     "exceljs": "^3.4.0",
     "express": "^4.18.2",
+    "firebase": "^12.15.0",
+    "firebase-admin": "^14.0.0",
     "json2csv": "^6.0.0-alpha.2",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.1.1",

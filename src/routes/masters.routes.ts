@@ -29,14 +29,23 @@ router.put('/designations/:id', MastersController.update('designation'));
 router.delete('/designations/:id', MastersController.remove('designation'));
 
 // Statutory
-router.get('/salary-components', MastersController.getAll('salaryComponent'));
-router.post('/salary-components', MastersController.create('salaryComponent'));
 
+// ✅ Salary Components
+router.get('/salary-components', MastersController.getSalaryComponents);
+router.post('/salary-components', MastersController.createSalaryComponent);
+router.delete('/salary-components/:id', MastersController.deleteSalaryComponent);
+
+// ✅ Compliance / Statutory Settings
 router.get('/statutory-settings', MastersController.getStatutorySettings);
 router.post('/statutory-settings', MastersController.updateStatutorySettings);
+router.get('/statutory-options', MastersController.getStatutoryOptions);
 
-router.get('/professional-tax-slabs', MastersController.getAll('professionalTaxSlab'));
-router.post('/professional-tax-slabs', MastersController.create('professionalTaxSlab'));
+// ✅ Professional Tax Slabs
+router.get('/professional-tax-slabs', MastersController.getProfessionalTaxSlabs);
+router.post('/professional-tax-slabs', MastersController.createProfessionalTaxSlab);
+router.delete('/professional-tax-slabs/:id', MastersController.deleteProfessionalTaxSlab);
+
+router.get('/statutory-options', MastersController.getStatutoryOptions);
 
 router.get('/bank-masters', MastersController.getAll('bankMaster'));
 router.post('/bank-masters', MastersController.create('bankMaster'));

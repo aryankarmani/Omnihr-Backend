@@ -249,30 +249,6 @@ export const createDepartment = async (req: Request, res: Response) => {
     }
 }
 
-// STATUTORY SETTINGS
-export const getStatutorySettings = async (req: Request, res: Response) => {
-    try {
-        const { tenantId } = req.user as any;
-        const settings = await prisma.statutorySettings.findUnique({ where: { tenantId } });
-        res.json(settings || {});
-    } catch (error: any) {
-        res.status(500).json({ error: "Failed to fetch statutory settings", details: error.message });
-    }
-}
-
-export const updateStatutorySettings = async (req: Request, res: Response) => {
-    try {
-        const { tenantId } = req.user as any;
-        const settings = await prisma.statutorySettings.upsert({
-            where: { tenantId },
-            update: req.body,
-            create: { ...req.body, tenantId }
-        });
-        res.json(settings);
-    } catch (error: any) {
-        res.status(500).json({ error: "Failed to update statutory settings", details: error.message });
-    }
-}
 
 // GEO MASTERS
 export const getStates = async (req: Request, res: Response) => {
@@ -429,4 +405,375 @@ export const deleteRole = async (req: Request, res: Response) => {
             details: error.message
         });
     }
+};
+
+// ======================================================
+// ✅ STATUTORY MASTERS BACKEND
+// Used by frontend: StatutoryMasters.tsx
+// ======================================================
+
+/**
+ * ✅ Dynamic dropdown options
+ * Frontend can use this API instead of hardcoded dropdown values.
+ */
+export const getStatutoryOptions = async (req: Request, res: Response) => {
+  return res.json({
+    componentTypes: ["EARNING", "DEDUCTION", "REIMBURSEMENT"],
+    taxabilityOptions: ["TAXABLE", "PARTIAL", "FULLY_EXEMPT"],
+    calculationTypes: ["FLAT", "%_BASIC", "%_GROSS"],
+    prorationMethods: ["CALENDAR_DAYS", "FIXED_30", "WORKING_DAYS"],
+    genderOptions: ["ALL", "MALE", "FEMALE"],
+  });
+};
+
+// ======================================================
+// ✅ SALARY COMPONENTS
+// ======================================================
+
+export const getSalaryComponents = async (req: Request, res: Response) => {
+  try {
+    const { tenantId } = req.user as any;
+
+    const components = await prisma.salaryComponent.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return res.json(components);
+  } catch (error: any) {
+    return res.status(500).json({
+      error: "Failed to fetch salary components",
+      details: error.message,
+    });
+  }
+};
+
+export const createSalaryComponent = async (req: Request, res: Response) => {
+  try {
+    const { tenantId } = req.user as any;
+
+    const {
+      name,
+      type = "EARNING",
+      taxability = "TAXABLE",
+      isWageCodeComponent = false,
+      isPartOfWages = false,
+      isFBP = false,
+      calculationType = "FLAT",
+      value = 0,
+      prorationMethod = "CALENDAR_DAYS",
+    } = req.body;
+
+    // ✅ Basic validation
+    if (!name || String(name).trim() === "") {
+      return res.status(400).json({
+        error: "Component name is required",
+      });
+    }
+
+    const allowedTypes = ["EARNING", "DEDUCTION", "REIMBURSEMENT"];
+    const allowedTaxability = ["TAXABLE", "PARTIAL", "FULLY_EXEMPT"];
+    const allowedCalculationTypes = ["FLAT", "%_BASIC", "%_GROSS"];
+    const allowedProrationMethods = ["CALENDAR_DAYS", "FIXED_30", "WORKING_DAYS"];
+
+    if (!allowedTypes.includes(type)) {
+      return res.status(400).json({ error: "Invalid component type" });
+    }
+
+    if (!allowedTaxability.includes(taxability)) {
+      return res.status(400).json({ error: "Invalid taxability" });
+    }
+
+    if (!allowedCalculationTypes.includes(calculationType)) {
+      return res.status(400).json({ error: "Invalid calculation type" });
+    }
+
+    if (!allowedProrationMethods.includes(prorationMethod)) {
+      return res.status(400).json({ error: "Invalid proration method" });
+    }
+
+    const component = await prisma.salaryComponent.create({
+      data: {
+        tenantId,
+
+        // ✅ Basic component data
+        name: String(name).trim(),
+        type,
+        taxability,
+
+        // ✅ Auto decide taxable status
+        isTaxable: taxability !== "FULLY_EXEMPT",
+
+        // ✅ Compliance flags
+        isWageCodeComponent: Boolean(isWageCodeComponent),
+        isPartOfWages: Boolean(isPartOfWages),
+        isFBP: Boolean(isFBP),
+
+        // ✅ Calculation config
+        calculationType,
+        value: Number(value || 0),
+        prorationMethod,
+      },
+    });
+
+    return res.status(201).json(component);
+  } catch (error: any) {
+    return res.status(500).json({
+      error: "Failed to create salary component",
+      details: error.message,
+    });
+  }
+};
+
+export const deleteSalaryComponent = async (req: Request, res: Response) => {
+  try {
+    const { tenantId } = req.user as any;
+    const { id } = req.params;
+
+    const deleted = await prisma.salaryComponent.deleteMany({
+      where: {
+        id,
+        tenantId,
+      },
+    });
+
+    if (deleted.count === 0) {
+      return res.status(404).json({
+        error: "Salary component not found",
+      });
+    }
+
+    return res.json({
+      message: "Salary component deleted successfully",
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      error: "Failed to delete salary component",
+      details: error.message,
+    });
+  }
+};
+
+// ======================================================
+// ✅ STATUTORY SETTINGS: EPF / ESIC
+// ======================================================
+
+export const getStatutorySettings = async (req: Request, res: Response) => {
+  try {
+    const { tenantId } = req.user as any;
+
+    const settings = await prisma.statutorySettings.findUnique({
+      where: { tenantId },
+    });
+
+    // ✅ If no settings found, return default values for frontend
+    return res.json(
+      settings || {
+        epfEnabled: true,
+        epfNumber: "",
+        epfWageCeiling: true,
+        pfCeilingType: "STATUTORY_15K",
+        epfEmployeeRate: 12,
+        epfEmployerRate: 3.67,
+        epsEmployerRate: 8.33,
+        edliEmployerRate: 0.5,
+        adminChargesRate: 0.5,
+
+        esicEnabled: true,
+        esicNumber: "",
+        esicWageLimit: 21000,
+        esicEmployeeRate: 0.75,
+        esicEmployerRate: 3.25,
+      }
+    );
+  } catch (error: any) {
+    return res.status(500).json({
+      error: "Failed to fetch statutory settings",
+      details: error.message,
+    });
+  }
+};
+
+export const updateStatutorySettings = async (req: Request, res: Response) => {
+  try {
+    const { tenantId } = req.user as any;
+
+    const {
+      epfEnabled = true,
+      epfNumber,
+      epfWageCeiling = true,
+      pfCeilingType,
+      epfEmployeeRate = 12,
+      epfEmployerRate = 3.67,
+      epsEmployerRate = 8.33,
+      edliEmployerRate = 0.5,
+      adminChargesRate = 0.5,
+
+      esicEnabled = true,
+      esicNumber,
+      esicWageLimit = 21000,
+      esicEmployeeRate = 0.75,
+      esicEmployerRate = 3.25,
+    } = req.body;
+
+    const settings = await prisma.statutorySettings.upsert({
+      where: { tenantId },
+      update: {
+        epfEnabled: Boolean(epfEnabled),
+        epfNumber: epfNumber || null,
+        epfWageCeiling: Boolean(epfWageCeiling),
+        pfCeilingType:
+          pfCeilingType || (epfWageCeiling ? "STATUTORY_15K" : "ACTUAL_BASIC"),
+
+        epfEmployeeRate: Number(epfEmployeeRate),
+        epfEmployerRate: Number(epfEmployerRate),
+        epsEmployerRate: Number(epsEmployerRate),
+        edliEmployerRate: Number(edliEmployerRate),
+        adminChargesRate: Number(adminChargesRate),
+
+        esicEnabled: Boolean(esicEnabled),
+        esicNumber: esicNumber || null,
+        esicWageLimit: Number(esicWageLimit),
+        esicEmployeeRate: Number(esicEmployeeRate),
+        esicEmployerRate: Number(esicEmployerRate),
+      },
+      create: {
+        tenantId,
+
+        epfEnabled: Boolean(epfEnabled),
+        epfNumber: epfNumber || null,
+        epfWageCeiling: Boolean(epfWageCeiling),
+        pfCeilingType:
+          pfCeilingType || (epfWageCeiling ? "STATUTORY_15K" : "ACTUAL_BASIC"),
+
+        epfEmployeeRate: Number(epfEmployeeRate),
+        epfEmployerRate: Number(epfEmployerRate),
+        epsEmployerRate: Number(epsEmployerRate),
+        edliEmployerRate: Number(edliEmployerRate),
+        adminChargesRate: Number(adminChargesRate),
+
+        esicEnabled: Boolean(esicEnabled),
+        esicNumber: esicNumber || null,
+        esicWageLimit: Number(esicWageLimit),
+        esicEmployeeRate: Number(esicEmployeeRate),
+        esicEmployerRate: Number(esicEmployerRate),
+      },
+    });
+
+    return res.json(settings);
+  } catch (error: any) {
+    return res.status(500).json({
+      error: "Failed to update statutory settings",
+      details: error.message,
+    });
+  }
+};
+
+// ======================================================
+// ✅ PROFESSIONAL TAX SLABS
+// ======================================================
+
+export const getProfessionalTaxSlabs = async (req: Request, res: Response) => {
+  try {
+    const { tenantId } = req.user as any;
+
+    const slabs = await prisma.professionalTaxSlab.findMany({
+      where: { tenantId },
+      include: {
+        state: true,
+      },
+      orderBy: {
+        minSalary: "asc",
+      },
+    });
+
+    return res.json(slabs);
+  } catch (error: any) {
+    return res.status(500).json({
+      error: "Failed to fetch professional tax slabs",
+      details: error.message,
+    });
+  }
+};
+
+export const createProfessionalTaxSlab = async (req: Request, res: Response) => {
+  try {
+    const { tenantId } = req.user as any;
+
+    const {
+      stateId,
+      gender = "ALL",
+      minSalary = 0,
+      maxSalary,
+      taxAmount = 0,
+    } = req.body;
+
+    if (!stateId) {
+      return res.status(400).json({
+        error: "State is required",
+      });
+    }
+
+    const state = await prisma.state.findUnique({
+      where: {
+        id: Number(stateId),
+      },
+    });
+
+    if (!state) {
+      return res.status(404).json({
+        error: "Selected state not found",
+      });
+    }
+
+    const slab = await prisma.professionalTaxSlab.create({
+      data: {
+        tenantId,
+        stateId: Number(stateId),
+        gender,
+        minSalary: Number(minSalary),
+        maxSalary:
+          maxSalary === "" || maxSalary === null || maxSalary === undefined
+            ? null
+            : Number(maxSalary),
+        taxAmount: Number(taxAmount),
+      },
+    });
+
+    return res.status(201).json(slab);
+  } catch (error: any) {
+    return res.status(500).json({
+      error: "Failed to create professional tax slab",
+      details: error.message,
+    });
+  }
+};
+
+export const deleteProfessionalTaxSlab = async (req: Request, res: Response) => {
+  try {
+    const { tenantId } = req.user as any;
+    const { id } = req.params;
+
+    const deleted = await prisma.professionalTaxSlab.deleteMany({
+      where: {
+        id,
+        tenantId,
+      },
+    });
+
+    if (deleted.count === 0) {
+      return res.status(404).json({
+        error: "Professional tax slab not found",
+      });
+    }
+
+    return res.json({
+      message: "Professional tax slab deleted successfully",
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      error: "Failed to delete professional tax slab",
+      details: error.message,
+    });
+  }
 };
