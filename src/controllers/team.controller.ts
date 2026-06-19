@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
 import { createNotification, notifyAdmins } from "../utils/notification";
+import { createAuditLog } from "../utils/auditLog";
 
 const prisma = new PrismaClient();
 
@@ -21,11 +22,11 @@ const formatTeam = (team: any) => ({
   managerId: team.managerId,
   manager: team.manager
     ? {
-        id: team.manager.id,
-        name: team.manager.name,
-        email: team.manager.email,
-        role: team.manager.role?.name || "Employee",
-      }
+      id: team.manager.id,
+      name: team.manager.name,
+      email: team.manager.email,
+      role: team.manager.role?.name || "Employee",
+    }
     : null,
   members: team.members.map((m: any) => ({
     id: m.user.id,
@@ -71,7 +72,7 @@ const validateUserInTenant = async (
 //         tenantId,
 //         name: roleName,
 //         accessibleModules:
-         
+
 //              "DASHBOARD,ATTENDANCE,LEAVE,MY_PROFILE",
 //       },
 //     });
@@ -180,7 +181,7 @@ export const createTeam = async (req: AuthRequest, res: Response) => {
         throw new Error("Invalid manager id");
       }
 
-      if (finalManagerId ) {
+      if (finalManagerId) {
         const manager = await validateUserInTenant(tx, tenantId, finalManagerId);
 
 
@@ -202,7 +203,7 @@ export const createTeam = async (req: AuthRequest, res: Response) => {
           tenantId,
           managerId: finalManagerId,
 
-            accessControl: {
+          accessControl: {
             create: {
               list: true,
               attendance: true,
@@ -242,24 +243,37 @@ export const createTeam = async (req: AuthRequest, res: Response) => {
       },
     });
 
-    try{
-    await notifyAdmins({
+    try {
+      await notifyAdmins({
+        tenantId,
+        title: 'New Team Created',
+        message: `Team ${team.name} has been created.`,
+        type: 'team',
+      });
+    }
+    catch (notifyError) {
+      console.log("Notification failed but team created:", notifyError);
+    }
+    await createAuditLog({
       tenantId,
-      title: 'New Team Created',
-      message: `Team ${team.name} has been created.`,
-      type: 'team',
+      module: "Team",
+      action: "Created",
+      description: `Team ${team.name} was created.`,
+      performedById: req.user?.id,
+      performedBy: req.user?.email || "Admin",
+      performedByRole: req.user?.role,
+      targetUserId: fullTeam?.managerId || undefined,
+      targetUser: fullTeam?.manager?.name || team.name,
+      targetUserRole: fullTeam?.manager?.role?.name || "Team",
     });
-  }
-   catch (notifyError) {
-  console.log("Notification failed but team created:", notifyError);
-}
 
     return res.status(201).json(formatTeam(fullTeam));
   } catch (error: any) {
     console.error("Create team error:", error);
-    return res.status(500).json({ message: "Failed to create team",
+    return res.status(500).json({
+      message: "Failed to create team",
       details: error.message,
-     });
+    });
   }
 };
 
@@ -293,17 +307,17 @@ export const updateTeam = async (req: AuthRequest, res: Response) => {
           : null;
 
       // ✅ UPDATED: If manager changed, old manager becomes EMPLOYEE if not managing any other team
-     if (managerId !== undefined && newManagerId && Number.isNaN(newManagerId)) {
+      if (managerId !== undefined && newManagerId && Number.isNaN(newManagerId)) {
         throw new Error("Invalid manager id");
       }
 
-      
+
 
       // ✅ UPDATED: New manager becomes MANAGER
       if (managerId !== undefined && newManagerId) {
         const manager = await validateUserInTenant(tx, tenantId, newManagerId);
 
-         if (!manager) {
+        if (!manager) {
           throw new Error("Manager not found in this tenant");
         }
 
@@ -347,14 +361,27 @@ export const updateTeam = async (req: AuthRequest, res: Response) => {
         accessControl: true,
       },
     });
+    await createAuditLog({
+      tenantId,
+      module: "Team",
+      action: "Updated",
+      description: `Team ${team?.name || existingTeam.name} was updated.`,
+      performedById: req.user?.id,
+      performedBy: req.user?.email || "Admin",
+      performedByRole: req.user?.role,
+      targetUserId: team?.managerId || undefined,
+      targetUser: team?.name || existingTeam.name,
+      targetUserRole: "Team",
+    });
 
     return res.json(formatTeam(team));
   } catch (error: any) {
     console.error("Update team error:", error);
-    return res.status(500).json({ message: "Failed to update team",
-       details: error.message,
-     });
-    
+    return res.status(500).json({
+      message: "Failed to update team",
+      details: error.message,
+    });
+
   }
 };
 
@@ -381,7 +408,7 @@ export const deleteTeam = async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ message: "Team not found" });
     }
 
-   
+
 
     // const oldManagerId = existingTeam.managerId;
     const memberIds = existingTeam.members.map((m) => m.userId);
@@ -392,15 +419,15 @@ export const deleteTeam = async (req: AuthRequest, res: Response) => {
         where: { teamId },
       });
 
-       await tx.teamMember.deleteMany({
-      where: { teamId },
+      await tx.teamMember.deleteMany({
+        where: { teamId },
+      });
+
+      await tx.team.delete({
+        where: { id: teamId },
+      });
     });
 
-    await tx.team.delete({
-      where: { id: teamId },
-    });
-  });
-    
     // const teamWithMembers = await prisma.team.findFirst({
     //   where: { id: teamId, tenantId },
     //   include: {
@@ -408,13 +435,13 @@ export const deleteTeam = async (req: AuthRequest, res: Response) => {
     //   },
     // });
 
-     // ✅ UPDATED: If deleted team manager manages no other team, change back to EMPLOYEE
+    // ✅ UPDATED: If deleted team manager manages no other team, change back to EMPLOYEE
     //   if (oldManagerId) {
     //     await downgradeManagerIfNoTeam(tx, tenantId, oldManagerId);
     //   }
     // });
 
-    try{
+    try {
       for (const userId of memberIds) {
         await createNotification({
           tenantId,
@@ -424,13 +451,25 @@ export const deleteTeam = async (req: AuthRequest, res: Response) => {
           type: "team",
         });
       }
-      } catch (notifyError) {
+    } catch (notifyError) {
       console.log("Notification failed but team deleted:", notifyError);
     }
-    
+
+    await createAuditLog({
+      tenantId,
+      module: "Team",
+      action: "Deleted",
+      description: `Team ${existingTeam.name} was deleted.`,
+      performedById: req.user?.id,
+      performedBy: req.user?.email || "Admin",
+      performedByRole: req.user?.role,
+      targetUser: existingTeam.name,
+      targetUserRole: "Team",
+    });
+
 
     return res.json({ message: "Team deleted successfully" });
-  } catch (error:any) {
+  } catch (error: any) {
     console.error("Delete team error:", error);
     return res.status(500).json({ message: "Failed to delete team" });
   }
@@ -462,61 +501,62 @@ export const addMembers = async (req: AuthRequest, res: Response) => {
       ? members.map((id) => Number(id)).filter((id) => !Number.isNaN(id))
       : [];
 
-     await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx) => {
       // const oldManagerId = team.managerId;
       const newManagerId =
         managerId !== undefined && managerId !== null && managerId !== ""
           ? Number(managerId)
           : null;
 
-  // ✅ UPDATED: If previous manager changed/removed, make old manager EMPLOYEE if not managing other team
-       if (managerId !== undefined && newManagerId && Number.isNaN(newManagerId)) {
+      // ✅ UPDATED: If previous manager changed/removed, make old manager EMPLOYEE if not managing other team
+      if (managerId !== undefined && newManagerId && Number.isNaN(newManagerId)) {
         throw new Error("Invalid manager id");
       }
 
       // ✅ UPDATED: Assign new manager and change role to MANAGER
-       if (managerId !== undefined) {
-      if (newManagerId) {
-        const manager = await validateUserInTenant(tx, tenantId, newManagerId);
+      if (managerId !== undefined) {
+        if (newManagerId) {
+          const manager = await validateUserInTenant(tx, tenantId, newManagerId);
 
-         if (!manager) {
+          if (!manager) {
             throw new Error("Manager not found in this tenant");
           }
 
-        await tx.team.update({
-          where: { id: teamId },
-          data: { managerId: newManagerId },
-        });
+          await tx.team.update({
+            where: { id: teamId },
+            data: { managerId: newManagerId },
+          });
 
-        // await tx.user.update({
-        //   where: { id: newManagerId },
-        //   data: { roleId: managerRole.id },
-        // });
+          // await tx.user.update({
+          //   where: { id: newManagerId },
+          //   data: { roleId: managerRole.id },
+          // });
 
-        // ✅ Manager should also be a team member
-        await tx.teamMember.upsert({
-          where: {
-            teamId_userId: {
+          // ✅ Manager should also be a team member
+          await tx.teamMember.upsert({
+            where: {
+              teamId_userId: {
+                teamId,
+                userId: newManagerId,
+              },
+            },
+            update: {},
+            create: {
               teamId,
               userId: newManagerId,
             },
-          },
-          update: {},
-          create: {
-            teamId,
-            userId: newManagerId,
-          },
-        });
-      } else {
-        await tx.team.update({
-          where: { id: teamId },
-          data: { managerId: newManagerId },
-        });
-      }}
+          });
+        } else {
+          await tx.team.update({
+            where: { id: teamId },
+            data: { managerId: newManagerId },
+          });
+        }
+      }
 
       // ✅ UPDATED: Add selected members
       for (const userId of memberIds) {
-       const user = await validateUserInTenant(tx, tenantId, userId);
+        const user = await validateUserInTenant(tx, tenantId, userId);
 
         if (user) {
           await tx.teamMember.upsert({
@@ -553,35 +593,49 @@ export const addMembers = async (req: AuthRequest, res: Response) => {
       },
     });
     try {
-    for (const userId of memberIds) {
-      await createNotification({
-        tenantId,
-        userId,
-        title: 'Added to Team',
-        message: `You have been added to team ${updatedTeam?.name}.`,
-        type: 'team',
-      });
-    }
+      for (const userId of memberIds) {
+        await createNotification({
+          tenantId,
+          userId,
+          title: 'Added to Team',
+          message: `You have been added to team ${updatedTeam?.name}.`,
+          type: 'team',
+        });
+      }
 
-    if (managerId) {
-      await createNotification({
-        tenantId,
-        userId: Number(managerId),
-        title: 'Team Manager Assigned',
-        message: `You have been assigned as manager of team ${updatedTeam?.name}.`,
-        type: 'team',
-      });
-    }}
+      if (managerId) {
+        await createNotification({
+          tenantId,
+          userId: Number(managerId),
+          title: 'Team Manager Assigned',
+          message: `You have been assigned as manager of team ${updatedTeam?.name}.`,
+          type: 'team',
+        });
+      }
+    }
     catch (notifyError) {
       console.log("Notification failed but members updated:", notifyError);
     }
 
+    await createAuditLog({
+      tenantId,
+      module: "Team",
+      action: "Updated",
+      description: `${memberIds.length} member(s) were added to team ${updatedTeam?.name}.`,
+      performedById: req.user?.id,
+      performedBy: req.user?.email || "Admin",
+      performedByRole: req.user?.role,
+      targetUser: updatedTeam?.name || "Team",
+      targetUserRole: "Team",
+    });
+
     return res.json(formatTeam(updatedTeam));
   } catch (error: any) {
     console.error("Add members error:", error);
-    return res.status(500).json({ message: "Failed to add members",
-    details: error.message,
-     });
+    return res.status(500).json({
+      message: "Failed to add members",
+      details: error.message,
+    });
   }
 };
 
@@ -608,14 +662,14 @@ export const removeMember = async (req: AuthRequest, res: Response) => {
     }
 
     await prisma.$transaction(async (tx) => {
-    await tx.teamMember.deleteMany({
-      where: {
-        teamId,
-        userId,
-      },
-    });
+      await tx.teamMember.deleteMany({
+        where: {
+          teamId,
+          userId,
+        },
+      });
 
-     // ✅ UPDATED: If removed user was manager, remove managerId and downgrade role
+      // ✅ UPDATED: If removed user was manager, remove managerId and downgrade role
       if (team.managerId === userId) {
         await tx.team.update({
           where: { id: teamId },
@@ -627,16 +681,29 @@ export const removeMember = async (req: AuthRequest, res: Response) => {
     });
 
     try {
-    await createNotification({
-      tenantId,
-      userId,
-      title: "Removed from Team",
-      message: `You have been removed from team ${team.name}.`,
-      type: "team",
-    });
-     } catch (notifyError) {
+      await createNotification({
+        tenantId,
+        userId,
+        title: "Removed from Team",
+        message: `You have been removed from team ${team.name}.`,
+        type: "team",
+      });
+    } catch (notifyError) {
       console.log("Notification failed but member removed:", notifyError);
     }
+
+    await createAuditLog({
+      tenantId,
+      module: "Team",
+      action: "Updated",
+      description: `A member was removed from team ${team.name}.`,
+      performedById: req.user?.id,
+      performedBy: req.user?.email || "Admin",
+      performedByRole: req.user?.role,
+      targetUserId: userId,
+      targetUser: `User ${userId}`,
+      targetUserRole: "EMPLOYEE",
+    });
 
     return res.json({ message: "Member removed successfully" });
   } catch (error) {

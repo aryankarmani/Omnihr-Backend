@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { notifyAdmins,createNotification} from '../utils/notification';
 import { getManagerTeamMemberIds } from "../utils/teamScope";
 import { sendPushNotificationToUser } from "./pushNotification.controller";
+import { createAuditLog } from "../utils/auditLog";
 
 const prisma = new PrismaClient();
 
@@ -208,13 +209,48 @@ export const applyLeave = async (req: Request, res: Response) => {
             return res.status(400).json({ message: 'All fields are required' });
         }
 
-        // Find the leave type ID
-        const leaveType = await prisma.leaveType.findFirst({
-            where: { code: leaveTypeCode, tenantId }
+        // ✅ Find the leave type for current tenant
+        let leaveType = await prisma.leaveType.findFirst({
+            where: {
+                code: leaveTypeCode,
+                tenantId,
+            },
         });
 
+        // ✅ If leave types are missing after DB reset,
+        // auto-create default leave types for this tenant.
         if (!leaveType) {
-            return res.status(404).json({ message: 'Leave type not found' });
+            const defaultLeaveTypes = [
+                { name: "Casual Leave", code: "CL", daysPerYear: 12 },
+                { name: "Sick Leave", code: "SL", daysPerYear: 10 },
+                { name: "Earned Leave", code: "EL", daysPerYear: 15 },
+                { name: "Leave Without Pay", code: "LWP", daysPerYear: 0 },
+            ];
+
+            for (const item of defaultLeaveTypes) {
+                await prisma.leaveType.create({
+                    data: {
+                        tenantId,
+                        name: item.name,
+                        code: item.code,
+                        daysPerYear: item.daysPerYear,
+                    },
+                });
+            }
+
+            // ✅ Find again after creating defaults
+            leaveType = await prisma.leaveType.findFirst({
+                where: {
+                    code: leaveTypeCode,
+                    tenantId,
+                },
+            });
+        }
+
+        if (!leaveType) {
+            return res.status(404).json({
+                message: "Leave type not found",
+            });
         }
 
         const newLeave = await prisma.leave.create({
@@ -250,6 +286,19 @@ export const applyLeave = async (req: Request, res: Response) => {
             employeeUserId: Number(userId),
             title,
             body: message,
+        });
+
+        await createAuditLog({
+            tenantId,
+            module: "Leave",
+            action: "Requested",
+            description: `${employee?.name || "Employee"} requested ${leaveType.name} from ${startDate} to ${endDate}.`,
+            performedById: userId,
+            performedBy: employee?.name || "Employee",
+            performedByRole: (req as any).user?.role,
+            targetUserId: userId,
+            targetUser: employee?.name || "Employee",
+            targetUserRole: "EMPLOYEE",
         });
 
 
@@ -306,7 +355,20 @@ export const updateLeaveStatus = async (req: Request, res: Response) => {
       type: "leave",
     });
 
-       await sendPushNotificationToUser(updatedLeave.userId, title, message);
+        await sendPushNotificationToUser(updatedLeave.userId, title, message);
+
+        await createAuditLog({
+            tenantId,
+            module: "Leave",
+            action: status === "APPROVED" ? "Approved" : status === "REJECTED" ? "Rejected" : "Updated",
+            description: `${updatedLeave.user.name}'s ${updatedLeave.leaveType?.name || "leave"} request was ${status.toLowerCase()}.`,
+            performedById: (req as any).user?.id,
+            performedBy: (req as any).user?.name || "Admin",
+            performedByRole: (req as any).user?.role,
+            targetUserId: updatedLeave.userId,
+            targetUser: updatedLeave.user.name,
+            targetUserRole: "EMPLOYEE",
+        });
 
         res.json(updatedLeave);
     } catch (error) {

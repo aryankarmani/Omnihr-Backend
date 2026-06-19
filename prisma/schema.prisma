@@ -75,8 +75,11 @@ model Tenant {
   investmentDeclarations InvestmentDeclaration[]
   teams                  Team[]
 
+  employeeSalaryComponents EmployeeSalaryComponent[]
+
   // existing fields...
   notifications Notification[]
+  auditLogs     AuditLog[]
 }
 
 model Role {
@@ -279,7 +282,8 @@ model EmployeeProfile {
   locationRef    Location?    @relation(fields: [locationId], references: [id])
   shiftRef       Shift?       @relation(fields: [shiftId], references: [id])
 
-  salaryHistory SalaryRevision[]
+  salaryHistory    SalaryRevision[]
+  salaryComponents EmployeeSalaryComponent[]
 
   phone       String?
   dob         DateTime?
@@ -536,6 +540,8 @@ model SalaryComponent {
   calculationType String @default("FLAT") // FLAT, %_BASIC
   value           Float? // Fixed amt or %
 
+  employeeSalaryComponents EmployeeSalaryComponent[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -791,4 +797,52 @@ model CompanySetting {
   authorizedSignImage String?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
+}
+
+model AuditLog {
+  id Int @id @default(autoincrement())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  module      String
+  action      String
+  description String
+
+  performedById   Int?
+  performedBy     String
+  performedByRole String?
+
+  targetUserId   Int?
+  targetUser     String?
+  targetUserRole String?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([module])
+  @@index([action])
+}
+
+model EmployeeSalaryComponent {
+  id Int @id @default(autoincrement())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  profileId Int
+  profile   EmployeeProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  componentId String
+  component   SalaryComponent @relation(fields: [componentId], references: [id], onDelete: Cascade)
+
+  // ✅ If amount is null, backend calculates using master value
+  amount Float?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([profileId, componentId])
+  @@index([tenantId])
+  @@index([profileId])
 }
