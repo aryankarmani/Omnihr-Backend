@@ -2,8 +2,69 @@ import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { notifyAdmins,createNotification} from '../utils/notification';
 import { getManagerTeamMemberIds } from "../utils/teamScope";
+import { sendPushNotificationToUser } from "./pushNotification.controller";
 
 const prisma = new PrismaClient();
+
+const sendLeaveRequestPushToApprovers = async ({
+  tenantId,
+  employeeUserId,
+  title,
+  body,
+}: {
+  tenantId: string;
+  employeeUserId: number;
+  title: string;
+  body: string;
+}) => {
+  try {
+    const employee = await prisma.user.findFirst({
+      where: {
+        id: employeeUserId,
+        tenantId,
+      },
+      select: {
+        managerId: true,
+      },
+    });
+
+    // ✅ Find HR_ADMIN and SYSTEM_ADMIN users
+    const admins = await prisma.user.findMany({
+      where: {
+        tenantId,
+        isActive: true,
+        deletedAt: null,
+        role: {
+          name: {
+            in: ["HR_ADMIN", "SYSTEM_ADMIN"],
+          },
+        },
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    const approverIds = new Set<number>();
+
+    // ✅ Add admins
+    admins.forEach((admin) => approverIds.add(admin.id));
+
+    // ✅ Add direct manager if employee has manager
+    if (employee?.managerId) {
+      approverIds.add(employee.managerId);
+    }
+
+    // ✅ Send push notification to all approvers
+    await Promise.all(
+      Array.from(approverIds).map((id) =>
+        sendPushNotificationToUser(id, title, body)
+      )
+    );
+  } catch (error) {
+    console.error("Leave approver push notification error:", error);
+  }
+};
 
 // Get leave balances for the authenticated user
 export const getLeaveBalances = async (req: Request, res: Response) => {
@@ -172,12 +233,25 @@ export const applyLeave = async (req: Request, res: Response) => {
             select: { name: true },
         });
 
+        const title = "New Leave Request";
+        const message = `${employee?.name || "Employee"} requested ${leaveType.name
+            } from ${startDate} to ${endDate}.`;
+
+        // ✅ OLD: In-app notification for admins
         await notifyAdmins({
             tenantId,
-            title: 'New Leave Request',
-            message: `${employee?.name || 'Employee'} requested ${leaveType.name} from ${startDate} to ${endDate}.`,
-            type: 'leave',
+            title,
+            message,
+            type: "leave",
         });
+
+        await sendLeaveRequestPushToApprovers({
+            tenantId,
+            employeeUserId: Number(userId),
+            title,
+            body: message,
+        });
+
 
         res.status(201).json(newLeave);
     } catch (error) {
@@ -195,6 +269,10 @@ export const updateLeaveStatus = async (req: Request, res: Response) => {
 
         if (!tenantId) return res.status(401).json({ message: 'Unauthorized' });
 
+        if (!["APPROVED", "REJECTED", "PENDING"].includes(status)) {
+      return res.status(400).json({ message: "Invalid leave status" });
+    }
+
         const updatedLeave = await prisma.leave.update({
             where: { id: Number(id), tenantId },
             data: { 
@@ -208,13 +286,27 @@ export const updateLeaveStatus = async (req: Request, res: Response) => {
                 },
             },
         });
-         await createNotification({
+
+         // ✅ Security check: make sure leave belongs to same tenant
+    if (updatedLeave.tenantId !== tenantId) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const title = "Leave Status Updated";
+    const message = `Your ${
+      updatedLeave.leaveType?.name || "leave"
+    } request has been ${status}.`;
+
+         // ✅ OLD: In-app notification for employee
+    await createNotification({
       tenantId,
       userId: updatedLeave.userId,
-      title: 'Leave Status Updated',
-      message: `Your ${updatedLeave.leaveType?.name || 'leave'} request has been ${status}.`,
-      type: 'leave',
+      title,
+      message,
+      type: "leave",
     });
+
+       await sendPushNotificationToUser(updatedLeave.userId, title, message);
 
         res.json(updatedLeave);
     } catch (error) {

@@ -48,21 +48,41 @@ const createRefreshToken = async (user: any) => {
 
 export const register = async (req: Request, res: Response) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password, role = "HR_ADMIN" } = req.body;
 
-    if (!name || !email || !password || !role) {
+    if (!name || !email || !password) {
       return res.status(400).json({
-        message: "Name, email, password and role are required",
+        message: "Name, email and password are required",
       });
     }
 
-    const tenant = await prisma.tenant.findFirst({
+    // ✅ Create tenant if DB was reset/deleted
+    const tenant = await prisma.tenant.upsert({
       where: { domain: "encalm" },
+      update: {},
+      create: {
+        name: "Encalm Consultancy",
+        domain: "encalm",
+        plan: "ENTERPRISE",
+      },
     });
 
-    if (!tenant) {
-      return res.status(400).json({ message: "Tenant not found" });
-    }
+    // ✅ Create role if DB was reset/deleted
+    const userRole = await prisma.role.upsert({
+      where: {
+        name_tenantId: {
+          name: role,
+          tenantId: tenant.id,
+        },
+      },
+      update: {},
+      create: {
+        name: role,
+        tenantId: tenant.id,
+        accessibleModules:
+          "DASHBOARD,EMPLOYEES,ATTENDANCE,LEAVE,REPORTS,MASTERS",
+      },
+    });
 
     const existingUser = await prisma.user.findFirst({
       where: {
@@ -74,19 +94,6 @@ export const register = async (req: Request, res: Response) => {
     if (existingUser) {
       return res.status(400).json({
         message: "User already exists",
-      });
-    }
-
-    const userRole = await prisma.role.findFirst({
-      where: {
-        name: role || "EMPLOYEE",
-        tenantId: tenant.id,
-      },
-    });
-
-    if (!userRole) {
-      return res.status(400).json({
-        message: "Role not found",
       });
     }
 
@@ -107,15 +114,17 @@ export const register = async (req: Request, res: Response) => {
     });
 
     const token = createAccessToken(user);
+    const refreshToken = await createRefreshToken(user);
 
     return res.status(201).json({
-      message: "User registered successfully",
+      message: "Admin registered successfully",
       token,
+      refreshToken,
       user: {
         id: user.id,
         name: user.name,
         email: user.email,
-        role: user.role?.name || "EMPLOYEE",
+        role: user.role?.name || "HR_ADMIN",
         tenantId: user.tenantId,
         tenantName: user.tenant?.name,
         accessibleModules: user.role?.accessibleModules
@@ -131,7 +140,6 @@ export const register = async (req: Request, res: Response) => {
     });
   }
 };
-
 
 export const login = async (req: Request, res: Response) => {
   try {

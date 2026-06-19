@@ -43,6 +43,100 @@ const calculateSalary = (salary: any): number => {
   );
 };
 
+// ✅ NEW: Attendance-based salary deduction helper
+const calculateAttendanceDeduction = async ({
+  tenantId,
+  userId,
+  grossSalary,
+  startDate,
+  endDate,
+  firstDay,
+  today,
+}: {
+  tenantId: string;
+  userId: number;
+  grossSalary: number;
+  startDate: string;
+  endDate: string;
+  firstDay: Date;
+  today: Date;
+}) => {
+  const workingDays = getWorkingDays(firstDay, today);
+  const perDaySalary = workingDays > 0 ? grossSalary / workingDays : 0;
+
+  const policy = await prisma.attendancePolicy.findUnique({
+    where: { tenantId },
+  });
+
+  const minHalfDayHours = policy?.minHalfDayHours ?? 4;
+  const minFullDayHours = policy?.minFullDayHours ?? 8;
+  const lateMarkThreshold = policy?.lateMarkThreshold ?? 3;
+  const lateMarkDeduction = policy?.lateMarkDeduction ?? "HALF_DAY";
+
+  const records = await prisma.attendanceRecord.findMany({
+    where: {
+      tenantId,
+      userId,
+      date: {
+        gte: startDate,
+        lte: endDate,
+      },
+    },
+  });
+
+  let lwpDays = 0;
+  let lateCount = 0;
+
+  records.forEach((record) => {
+    const status = String(record.status || "").toUpperCase();
+    const hours = record.hours || 0;
+
+    if (status === "ABSENT") {
+      lwpDays += 1;
+      return;
+    }
+
+    if (status === "HALF DAY" || status === "HALF_DAY") {
+      lwpDays += 0.5;
+      return;
+    }
+
+    if (status === "LATE") {
+      lateCount += 1;
+    }
+
+    // ✅ Short-hours deduction
+    if (hours > 0 && hours < minHalfDayHours) {
+      lwpDays += 1;
+    } else if (hours > 0 && hours < minFullDayHours) {
+      lwpDays += 0.5;
+    }
+  });
+
+  // ✅ Late mark deduction
+  if (lateMarkThreshold > 0) {
+    const latePenaltyCount = Math.floor(lateCount / lateMarkThreshold);
+
+    if (latePenaltyCount > 0) {
+      lwpDays +=
+        latePenaltyCount *
+        (lateMarkDeduction === "ONE_DAY" ? 1 : 0.5);
+    }
+  }
+
+  const lwpDeduction = Math.round(perDaySalary * lwpDays);
+  const netSalary = Math.max(0, Math.round(grossSalary - lwpDeduction));
+
+  return {
+    workingDays,
+    perDaySalary: Math.round(perDaySalary),
+    lateCount,
+    lwpDays,
+    lwpDeduction,
+    netSalary,
+  };
+};
+
 const formatLocalDate = (date: Date): string => {
   const yyyy = date.getFullYear();
   const mm = String(date.getMonth() + 1).padStart(2, '0');
@@ -674,7 +768,7 @@ export const exportSalaryRegister = async (
 
     if (!tenantId) return;
 
-    const { period } = getReportRange(req.query.period);
+    const { period, startDate, endDate, firstDay, today } = getReportRange(req.query.period);
 
     // Scale values based on period
     let multiplier = 1;
@@ -691,28 +785,48 @@ export const exportSalaryRegister = async (
     // ✅ CHANGED: Salary export also reads all active users
     const employees = await getActiveEmployees(tenantId);
 
-    const formatted = employees.map((user) => {
-      const profile = user.employeeProfile;
-      const salary = profile?.salary;
+    const formatted = await Promise.all(
+      employees.map(async (user) => {
+        const profile = user.employeeProfile;
+        const salary = profile?.salary;
 
-      const basic = salary?.basic || 0;
-      const hra = salary?.hra || 0;
-      const special = salary?.special || 0;
-      const medical = salary?.medical || 0;
-      const grossSalary = calculateSalary(salary);
+        const basic = salary?.basic || 0;
+        const hra = salary?.hra || 0;
+        const special = salary?.special || 0;
+        const medical = salary?.medical || 0;
+        const grossSalary = calculateSalary(salary);
+        const finalGrossSalary = Math.round(grossSalary * multiplier);
 
-      return {
-        employeeId: user.id,
-        name: user.name || "",
-        email: user.email || "",
-        department: profile?.departmentRef?.name || profile?.department || "",
-        basic: Math.round(basic * multiplier),
-        hra: Math.round(hra * multiplier),
-        special: Math.round(special * multiplier),
-        medical: Math.round(medical * multiplier),
-        grossSalary: Math.round(grossSalary * multiplier),
-      };
-    });
+        const deduction = await calculateAttendanceDeduction({
+          tenantId,
+          userId: user.id,
+          grossSalary: finalGrossSalary,
+          startDate,
+          endDate,
+          firstDay,
+          today,
+        });
+
+
+        return {
+          employeeId: user.id,
+          name: user.name || "",
+          email: user.email || "",
+          department: profile?.departmentRef?.name || profile?.department || "",
+          basic: Math.round(basic * multiplier),
+          hra: Math.round(hra * multiplier),
+          special: Math.round(special * multiplier),
+          medical: Math.round(medical * multiplier),
+          grossSalary: Math.round(grossSalary * multiplier),
+          // ✅ NEW deduction fields
+          workingDays: deduction.workingDays,
+          lateCount: deduction.lateCount,
+          lwpDays: deduction.lwpDays,
+          lwpDeduction: deduction.lwpDeduction,
+          netSalary: deduction.netSalary,
+        };
+      })
+    );
 
     const parser = new Parser({
       fields: [

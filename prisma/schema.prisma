@@ -120,6 +120,8 @@ model User {
   password String? // For auth
   name     String
 
+  fcmToken String?
+
   // UPDATED: Soft delete fields
   isActive  Boolean   @default(true)
   deletedAt DateTime?
@@ -353,7 +355,7 @@ model SalaryStructure {
 
   // Computed / LWP
   totalSalary  Float @default(0)
-  lwpDays      Int   @default(0)
+  lwpDays      Float @default(0)
   lwpDeduction Float @default(0)
 }
 

@@ -21,6 +21,7 @@ import teamRoutes from './routes/team.routes';
 import notificationRoutes from './routes/notification.routes';
 import { authenticate } from './middleware/auth';
 import companySettingRoutes from "./routes/companySetting.routes";
+import pushNotificationRoutes from "./routes/pushNotification.routes";
 
 app.use(cors());
 app.use(express.json());
@@ -52,7 +53,8 @@ app.use('/api/teams', teamRoutes);
 app.use('/api/dashboard', require('./routes/dashboard.routes').default);
 app.use('/api/reports', authenticate,reportRoutes);
 app.use("/api/company-setting", companySettingRoutes);
-app.use("/api/company-settings", companySettingRoutes);
+
 //app.use("/uploads", express.static("uploads"));
+app.use("/api/push-notification", pushNotificationRoutes);
 
 export { app, prisma };
