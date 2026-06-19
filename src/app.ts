@@ -53,7 +53,7 @@ app.use('/api/teams', teamRoutes);
 app.use('/api/dashboard', require('./routes/dashboard.routes').default);
 app.use('/api/reports', authenticate,reportRoutes);
 app.use("/api/company-setting", companySettingRoutes);
-app.use("/api/company-settings", companySettingRoutes);
+
 //app.use("/uploads", express.static("uploads"));
 app.use("/api/push-notification", pushNotificationRoutes);
 

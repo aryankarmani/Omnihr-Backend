@@ -502,8 +502,10 @@ export const getPendingRegularizations = async (req: AuthRequest, res: Response)
 
         // ✅ CHANGED: HR admin sees all, manager sees only own team
         if (!isAdmin(req.user)) {
+        
             const memberIds = await getManagerTeamMemberIds(tenantId, userId);
 
+           
             if (memberIds.length === 0) {
                 return res.status(403).json({
                     message: "Only admin or team manager can view pending regularization requests",
@@ -516,6 +518,7 @@ export const getPendingRegularizations = async (req: AuthRequest, res: Response)
         }
 
         const requests = await prisma.attendanceRegularization.findMany({
+            
             // ✅ CHANGED: use whereClause
             where: whereClause,
             include: {
@@ -536,6 +539,7 @@ export const getPendingRegularizations = async (req: AuthRequest, res: Response)
             },
             orderBy: {
                 createdAt: "desc",
+               
             },
         });
 
@@ -543,6 +547,7 @@ export const getPendingRegularizations = async (req: AuthRequest, res: Response)
     } catch (error: any) {
         res.status(500).json({
             message: "Error fetching pending regularization requests",
+          
             error: error.message,
         });
     }
@@ -560,6 +565,7 @@ export const approveRegularization = async (req: AuthRequest, res: Response) => 
                 id: Number(id),
                 tenantId,
                 status: "PENDING",
+               
             },
             include: {
                 user: true,
@@ -582,8 +588,11 @@ export const approveRegularization = async (req: AuthRequest, res: Response) => 
         if (!allowed) {
             return res.status(403).json({
                 message: "You can approve only your team member regularization requests",
+                
             });
         }
+
+        
 
         const { status, hours } = calculateRegularizedStatus(
             request.proposedIn,
@@ -670,6 +679,7 @@ export const rejectRegularization = async (req: AuthRequest, res: Response) => {
                 id: Number(id),
                 tenantId,
                 status: "PENDING",
+                
             },
         });
 
@@ -689,8 +699,11 @@ export const rejectRegularization = async (req: AuthRequest, res: Response) => {
         if (!allowed) {
             return res.status(403).json({
                 message: "You can reject only your team member regularization requests",
+               
             });
         }
+
+       
 
         const updatedRequest = await prisma.attendanceRegularization.update({
             where: {
@@ -698,9 +711,11 @@ export const rejectRegularization = async (req: AuthRequest, res: Response) => {
             },
             data: {
                 status: "REJECTED",
+                
                 rejectedAt: new Date(),
                 approverId,
                 approverComment: reason || "Rejected",
+                
             },
         });
 
@@ -757,6 +772,7 @@ export const forceRegularizeAttendance = async (req: AuthRequest, res: Response)
 
             return memberIds.includes(targetUserId);
         };
+       
 
         const {
             employeeId,

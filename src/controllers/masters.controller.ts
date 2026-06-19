@@ -91,6 +91,7 @@ export const create = (model: string) => async (req: Request, res: Response) => 
         const data = await prisma[model].create({
             data: { ...req.body, tenantId }
         });
+        
         if (model === 'designation') {
             return res.json({
                 ...data,
@@ -130,6 +131,7 @@ export const update = (model: string) => async (req: Request, res: Response) => 
         const updated = await prisma[model].findFirst({
             where: { id, tenantId },
         });
+       
         if (model === 'designation' && updated) {
             return res.json({
                 ...updated,
@@ -180,6 +182,7 @@ export const getCompany = async (req: Request, res: Response) => {
             error: "Failed to fetch company",
             details: error.message
         });
+       
     }
 };
 
@@ -206,12 +209,15 @@ export const updateCompany = async (req: Request, res: Response) => {
             res.json(newCompany);
         }
     } catch (error: any) {
+        
         res.status(500).json({
             error: "Failed to update company",
             details: error.message
         });
+        
     }
 };
+
 
 
 // SPECIFIC CONTROLLERS FOR NESTED LOGIC
@@ -228,7 +234,7 @@ export const createLocation = async (req: Request, res: Response) => {
             data: { ...data, companyId, tenantId }
         });
         res.json(location);
-    } catch (error: any) {
+    }  catch (error: any) {
         res.status(500).json({ error: "Failed to create location", details: error.message, });
     }
 }
@@ -244,7 +250,7 @@ export const createDepartment = async (req: Request, res: Response) => {
             data: { ...data, companyId, tenantId }
         });
         res.json(dept);
-    } catch (error: any) {
+    }  catch (error: any) {
         res.status(500).json({ error: "Failed to create department", details: error.message });
     }
 }
@@ -257,7 +263,7 @@ export const getStates = async (req: Request, res: Response) => {
         res.json(states);
     } catch (error: any) {
         res.status(500).json({ error: "Failed to fetch states", details: error.message });
-    }
+    } 
 }
 
 export const getCities = async (req: Request, res: Response) => {
@@ -283,7 +289,8 @@ export const getAttendancePolicy = async (req: Request, res: Response) => {
         const { tenantId } = req.user as any;
         const policy = await prisma.attendancePolicy.findUnique({ where: { tenantId } });
         res.json(policy || {});
-    } catch (error: any) { res.status(500).json({ error: "Failed to fetch policy", details: error.message }); }
+    } 
+    catch (error: any) { res.status(500).json({ error: "Failed to fetch policy", details: error.message }); }
 };
 
 export const updateAttendancePolicy = async (req: Request, res: Response) => {
@@ -303,6 +310,7 @@ export const getPermissions = async (req: Request, res: Response) => {
     try {
         const permissions = await prisma.permission.findMany();
         res.json(permissions);
+    
     } catch (error) {
         console.error("Get permissions error:", error);
         res.status(500).json({ error: "Failed to fetch permissions" });
@@ -313,6 +321,7 @@ export const getRoles = async (req: Request, res: Response) => {
     try {
         const { tenantId } = req.user as any;
         const roles = await prisma.role.findMany({
+            
             where: {
                 tenantId,
                 NOT: {
@@ -322,6 +331,7 @@ export const getRoles = async (req: Request, res: Response) => {
             include: { permissions: true }
         });
         res.json(roles);
+  
     } catch (error) {
         console.error("Get roles error:", error);
         res.status(500).json({ error: "Failed to fetch roles" });
@@ -339,7 +349,7 @@ export const createRole = async (req: Request, res: Response) => {
                 error: "MANAGER role is not allowed. Manager access is handled from Team Access Control.",
             });
         }
-
+       
         const role = await prisma.role.create({
             data: {
                 name,
@@ -366,6 +376,8 @@ export const updateRole = async (req: Request, res: Response) => {
         const { id } = req.params;
         const { name, permissionIds = [], accessibleModules = "" } = req.body;
 
+        
+
         console.log("Update role body:", req.body);
 
         const role = await prisma.role.update({
@@ -381,7 +393,8 @@ export const updateRole = async (req: Request, res: Response) => {
             include: { permissions: true }
         });
         res.json(role);
-    } catch (error: any) {
+    } 
+    catch (error: any) {
         console.error("Update role error:", error);
         res.status(500).json({
             error: "Failed to update role",
@@ -398,8 +411,8 @@ export const deleteRole = async (req: Request, res: Response) => {
         });
 
         res.json({ message: "Role deleted successfully" });
-    } catch (error: any) {
-        console.error("Delete role error:", error);
+    }  catch (error: any) {
+       
         res.status(500).json({
             error: "Failed to delete role",
             details: error.message

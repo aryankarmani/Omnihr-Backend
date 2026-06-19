@@ -45,7 +45,7 @@ router.get('/professional-tax-slabs', MastersController.getProfessionalTaxSlabs)
 router.post('/professional-tax-slabs', MastersController.createProfessionalTaxSlab);
 router.delete('/professional-tax-slabs/:id', MastersController.deleteProfessionalTaxSlab);
 
-router.get('/statutory-options', MastersController.getStatutoryOptions);
+
 
 router.get('/bank-masters', MastersController.getAll('bankMaster'));
 router.post('/bank-masters', MastersController.create('bankMaster'));
