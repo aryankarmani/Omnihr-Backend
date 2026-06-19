@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { createNotification, notifyAdmins } from '../utils/notification';
 import { getManagerTeamMemberIds, isAdminOrManager } from "../utils/teamScope";
+import { createAuditLog } from "../utils/auditLog";
 
 import { sendPushNotificationToUser } from "./pushNotification.controller";
 
@@ -452,6 +453,19 @@ export const applyRegularization = async (req: AuthRequest, res: Response) => {
       body: message,
     });
 
+    await createAuditLog({
+  tenantId,
+  module: "Regularization",
+  action: "Requested",
+  description: `${request.user?.name || "Employee"} submitted attendance regularization for ${date}.`,
+  performedById: userId,
+  performedBy: request.user?.name || "Employee",
+  performedByRole: req.user?.role,
+  targetUserId: userId,
+  targetUser: request.user?.name || "Employee",
+  targetUserRole: "EMPLOYEE",
+});
+
     res.status(201).json({
       message: "Attendance regularization request submitted successfully",
       request,
@@ -653,6 +667,19 @@ export const approveRegularization = async (req: AuthRequest, res: Response) => 
     // ✅ NEW: Push notification to employee
     await sendPushNotificationToUser(request.userId, title, message);
 
+    await createAuditLog({
+  tenantId,
+  module: "Regularization",
+  action: "Approved",
+  description: `${request.user?.name || "Employee"}'s attendance regularization for ${request.date} was approved.`,
+  performedById: approverId,
+  performedBy: req.user?.email || "Admin",
+  performedByRole: req.user?.role,
+  targetUserId: request.userId,
+  targetUser: request.user?.name || "Employee",
+  targetUserRole: "EMPLOYEE",
+});
+
     res.json({
       message: "Regularization approved and attendance updated successfully",
       ...result,
@@ -735,6 +762,19 @@ export const rejectRegularization = async (req: AuthRequest, res: Response) => {
 
     // ✅ NEW: Push notification to employee
     await sendPushNotificationToUser(request.userId, title, message);
+
+    await createAuditLog({
+  tenantId,
+  module: "Regularization",
+  action: "Rejected",
+  description: `${request.userId}'s attendance regularization for ${request.date} was rejected.`,
+  performedById: approverId,
+  performedBy: req.user?.email || "Admin",
+  performedByRole: req.user?.role,
+  targetUserId: request.userId,
+  targetUser: `User ${request.userId}`,
+  targetUserRole: "EMPLOYEE",
+});
 
     res.json({
       message: "Regularization request rejected successfully",

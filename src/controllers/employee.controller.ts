@@ -5,6 +5,7 @@ import { getManagerTeamMemberIds } from "../utils/teamScope";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { sendMail, employeeWelcomeTemplate } from "../utils/mail";
+import { createAuditLog } from "../utils/auditLog";
 
 
 const prisma = new PrismaClient();
@@ -84,6 +85,11 @@ const employeeInclude = {
             bank: true,
             documents: true,
             salary: true,
+            salaryComponents: {
+                include: {
+                    component: true,
+                },
+            },
             departmentRef: true,
             designationRef: true,
 
@@ -498,6 +504,19 @@ export const createEmployee = async (req: Request, res: Response) => {
             console.log("Employee created but email failed:", mailError);
         }
 
+        await createAuditLog({
+            tenantId,
+            module: "Employee",
+            action: "Created",
+            description: `New employee ${name} was created.`,
+            performedById: (req as any).user?.id,
+            performedBy: (req as any).user?.name || "Admin",
+            performedByRole: (req as any).user?.role,
+            targetUserId: newUser.id,
+            targetUser: name,
+            targetUserRole: "EMPLOYEE",
+        });
+
         res.status(201).json(fullEmployee);
     } catch (error: any) {
         console.error('Error creating employee:', error);
@@ -524,8 +543,13 @@ export const getEmployee = async (req: Request, res: Response) => {
                         statutory: true,
                         bank: true,
                         documents: true,
-                        salary: true
-                    }
+                        salary: true,
+                        salaryComponents: {
+                            include: {
+                                component: true,
+                            },
+                        },
+                    },
                 },
                 role: true,
                 manager: {
@@ -863,6 +887,19 @@ export const updateEmployee = async (req: Request, res: Response) => {
             type: "employee",
         });
 
+        await createAuditLog({
+            tenantId,
+            module: "Employee",
+            action: "Updated",
+            description: `${existingEmployee.name}'s profile was updated.`,
+            performedById: loggedInUser?.id,
+            performedBy: loggedInUser?.name || "Admin",
+            performedByRole: loggedInUser?.role,
+            targetUserId: userId,
+            targetUser: name || existingEmployee.name,
+            targetUserRole: role || "EMPLOYEE",
+        });
+
         return res.json(updatedProfile);
     } catch (error: any) {
         console.error("Update employee error:", error);
@@ -993,6 +1030,7 @@ export const deleteEmployee = async (req: Request, res: Response) => {
             },
             include: {
                 employeeProfile: true,
+                role: true,
             },
         });
 
@@ -1039,6 +1077,23 @@ export const deleteEmployee = async (req: Request, res: Response) => {
                 },
             });
         });
+
+        await createAuditLog({
+    tenantId,
+    module: "Employee",
+    action: "Deleted",
+
+    // ✅ FIXED: variable name is employee, not existingEmployee
+    description: `${employee.name} was deleted/inactivated.`,
+
+    performedById: (req as any).user?.id,
+    performedBy: (req as any).user?.name || (req as any).user?.email || "Admin",
+    performedByRole: (req as any).user?.role,
+
+    targetUserId: userId,
+    targetUser: employee.name,
+    targetUserRole: employee.role?.name || "EMPLOYEE",
+});
 
         res.json({ message: 'Employee and all associated records deleted successfully' });
     } catch (error) {
@@ -1106,8 +1161,13 @@ export const getCurrentEmployee = async (req: Request, res: Response) => {
                         statutory: true,
                         bank: true,
                         documents: true,
-                        salary: true
-                    }
+                        salary: true,
+                        salaryComponents: {
+                            include: {
+                                component: true,
+                            },
+                        },
+                    },
                 },
                 role: true,
                 manager: {
