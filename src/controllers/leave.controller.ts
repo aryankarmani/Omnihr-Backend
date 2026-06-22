@@ -1,9 +1,18 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { notifyAdmins,createNotification} from '../utils/notification';
+import { notifyAdmins, createNotification } from '../utils/notification';
 import { getManagerTeamMemberIds } from "../utils/teamScope";
 
 const prisma = new PrismaClient();
+const formatNotificationDate = (dateString: string) => {
+    const [year, month, day] = dateString.split('-').map(Number);
+
+    return new Date(year, month - 1, day).toLocaleDateString('en-US', {
+        month: 'numeric',
+        day: 'numeric',
+        year: 'numeric',
+    });
+};
 
 // Get leave balances for the authenticated user
 export const getLeaveBalances = async (req: Request, res: Response) => {
@@ -15,14 +24,14 @@ export const getLeaveBalances = async (req: Request, res: Response) => {
 
         // Fetch all leave types for the tenant
         const leaveTypes = await prisma.leaveType.findMany({
-  where: {
-    tenantId,
-    code: {
-      in: ['CL', 'SL', 'EL']
-    }
-  },
-  distinct: ['code']
-});
+            where: {
+                tenantId,
+                code: {
+                    in: ['CL', 'SL', 'EL']
+                }
+            },
+            distinct: ['code']
+        });
 
         // Fetch approved leaves for the user to calculate taken days (FOR CURRENT YEAR ONLY)
         const currentYear = new Date().getFullYear();
@@ -115,7 +124,7 @@ export const getLeaveHistory = async (req: Request, res: Response) => {
             include: {
                 leaveType: true,
                 user: {
-                    select: { 
+                    select: {
                         id: true,
                         name: true,
                         email: true,
@@ -172,10 +181,13 @@ export const applyLeave = async (req: Request, res: Response) => {
             select: { name: true },
         });
 
+        const formattedStartDate = formatNotificationDate(startDate);
+        const formattedEndDate = formatNotificationDate(endDate);
+
         await notifyAdmins({
             tenantId,
-            title: 'New Leave Request',
-            message: `${employee?.name || 'Employee'} requested ${leaveType.name} from ${startDate} to ${endDate}.`,
+            title: 'Leave Request',
+            message: `${employee?.name || 'Employee'} requested ${leaveType.name} from ${formattedStartDate} to ${formattedEndDate}.`,
             type: 'leave',
         });
 
@@ -197,7 +209,7 @@ export const updateLeaveStatus = async (req: Request, res: Response) => {
 
         const updatedLeave = await prisma.leave.update({
             where: { id: Number(id), tenantId },
-            data: { 
+            data: {
                 status,
                 rejectionReason: status === 'REJECTED' ? rejectionReason : null
             },
@@ -208,13 +220,13 @@ export const updateLeaveStatus = async (req: Request, res: Response) => {
                 },
             },
         });
-         await createNotification({
-      tenantId,
-      userId: updatedLeave.userId,
-      title: 'Leave Status Updated',
-      message: `Your ${updatedLeave.leaveType?.name || 'leave'} request has been ${status}.`,
-      type: 'leave',
-    });
+        await createNotification({
+            tenantId,
+            userId: updatedLeave.userId,
+            title: 'Leave Status Updated',
+            message: `Your ${updatedLeave.leaveType?.name || 'leave'} request has been ${status}.`,
+            type: 'leave',
+        });
 
         res.json(updatedLeave);
     } catch (error) {
