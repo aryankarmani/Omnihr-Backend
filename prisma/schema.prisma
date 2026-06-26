@@ -79,7 +79,7 @@ model Tenant {
 
   // existing fields...
   notifications Notification[]
-  auditLogs     AuditLog[]
+  customFields  CustomField[]
 }
 
 model Role {
@@ -305,6 +305,8 @@ model EmployeeProfile {
 
   tenantId String
   tenant   Tenant @relation(fields: [tenantId], references: [id])
+
+  customFieldAssignments CustomFieldAssignment[]
 }
 
 model StatutoryDetails {
@@ -799,50 +801,33 @@ model CompanySetting {
   updatedAt           DateTime @updatedAt
 }
 
-model AuditLog {
-  id Int @id @default(autoincrement())
-
-  tenantId String
-  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-
-  module      String
-  action      String
-  description String
-
-  performedById   Int?
-  performedBy     String
-  performedByRole String?
-
-  targetUserId   Int?
-  targetUser     String?
-  targetUserRole String?
-
-  createdAt DateTime @default(now())
-
-  @@index([tenantId])
-  @@index([module])
-  @@index([action])
-}
-
-model EmployeeSalaryComponent {
-  id Int @id @default(autoincrement())
-
-  tenantId String
-  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-
-  profileId Int
-  profile   EmployeeProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
-
-  componentId String
-  component   SalaryComponent @relation(fields: [componentId], references: [id], onDelete: Cascade)
-
-  // ✅ If amount is null, backend calculates using master value
-  amount Float?
-
+model CustomField {
+  id        String   @id @default(uuid())
+  name      String
+  category  String   // "PERSONAL_DETAILS" or "DOCUMENT_VAULT"
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([profileId, componentId])
-  @@index([tenantId])
-  @@index([profileId])
+  assignments CustomFieldAssignment[]
+
+  @@unique([name, category, tenantId])
 }
+
+model CustomFieldAssignment {
+  id                String          @id @default(uuid())
+  fieldId           String
+  field             CustomField     @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  employeeProfileId Int
+  profile           EmployeeProfile @relation(fields: [employeeProfileId], references: [id], onDelete: Cascade)
+  value             String?         // Used for PERSONAL_DETAILS fields
+  documentUrl       String?         // Used for DOCUMENT_VAULT fields (uploaded filename)
+  documentName      String?         // Original filename of document
+  tenantId          String
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@unique([fieldId, employeeProfileId])
+}
+
