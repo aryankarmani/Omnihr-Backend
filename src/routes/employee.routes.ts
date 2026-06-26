@@ -7,11 +7,7 @@ import { upload } from '../middleware/upload';
 const router = Router();
 
 router.get('/', authenticate, getAllEmployees);
-router.post('/', authenticate, upload.fields([
-    { name: 'aadhaar', maxCount: 1 },
-    { name: 'pan', maxCount: 1 },
-    { name: 'degree', maxCount: 1 }
-]), createEmployee);
+router.post('/', authenticate, upload.any(), createEmployee);
 
 router.get('/me', authenticate, getCurrentEmployee);
 router.put('/me', authenticate, updateEmployee);

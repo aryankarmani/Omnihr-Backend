@@ -23,6 +23,8 @@ import { authenticate } from './middleware/auth';
 import companySettingRoutes from "./routes/companySetting.routes";
 import pushNotificationRoutes from "./routes/pushNotification.routes";
 import customFieldsRoutes from "./routes/customFields.routes";
+import auditLogRoutes from "./routes/auditLog.routes";
+import payrollRoutes from "./routes/payroll.routes";
 
 app.use(cors());
 app.use(express.json());
