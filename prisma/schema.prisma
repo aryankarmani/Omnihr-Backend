@@ -77,6 +77,7 @@ model Tenant {
 
   // existing fields...
   notifications Notification[]
+  customFields  CustomField[]
 }
 
 model Role {
@@ -301,6 +302,8 @@ model EmployeeProfile {
 
   tenantId String
   tenant   Tenant @relation(fields: [tenantId], references: [id])
+
+  customFieldAssignments CustomFieldAssignment[]
 }
 
 model StatutoryDetails {
@@ -792,3 +795,34 @@ model CompanySetting {
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 }
+
+model CustomField {
+  id        String   @id @default(uuid())
+  name      String
+  category  String   // "PERSONAL_DETAILS" or "DOCUMENT_VAULT"
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignments CustomFieldAssignment[]
+
+  @@unique([name, category, tenantId])
+}
+
+model CustomFieldAssignment {
+  id                String          @id @default(uuid())
+  fieldId           String
+  field             CustomField     @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  employeeProfileId Int
+  profile           EmployeeProfile @relation(fields: [employeeProfileId], references: [id], onDelete: Cascade)
+  value             String?         // Used for PERSONAL_DETAILS fields
+  documentUrl       String?         // Used for DOCUMENT_VAULT fields (uploaded filename)
+  documentName      String?         // Original filename of document
+  tenantId          String
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@unique([fieldId, employeeProfileId])
+}
+

@@ -22,6 +22,7 @@ import notificationRoutes from './routes/notification.routes';
 import { authenticate } from './middleware/auth';
 import companySettingRoutes from "./routes/companySetting.routes";
 import pushNotificationRoutes from "./routes/pushNotification.routes";
+import customFieldsRoutes from "./routes/customFields.routes";
 
 app.use(cors());
 app.use(express.json());
@@ -56,5 +57,6 @@ app.use("/api/company-setting", companySettingRoutes);
 
 //app.use("/uploads", express.static("uploads"));
 app.use("/api/push-notification", pushNotificationRoutes);
+app.use("/api/custom-fields", customFieldsRoutes);
 
 export { app, prisma };
