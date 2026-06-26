@@ -75,6 +75,8 @@ model Tenant {
   investmentDeclarations InvestmentDeclaration[]
   teams                  Team[]
 
+  employeeSalaryComponents EmployeeSalaryComponent[]
+
   // existing fields...
   notifications Notification[]
   customFields  CustomField[]
@@ -280,7 +282,8 @@ model EmployeeProfile {
   locationRef    Location?    @relation(fields: [locationId], references: [id])
   shiftRef       Shift?       @relation(fields: [shiftId], references: [id])
 
-  salaryHistory SalaryRevision[]
+  salaryHistory    SalaryRevision[]
+  salaryComponents EmployeeSalaryComponent[]
 
   phone       String?
   dob         DateTime?
@@ -538,6 +541,8 @@ model SalaryComponent {
   // Calculation
   calculationType String @default("FLAT") // FLAT, %_BASIC
   value           Float? // Fixed amt or %
+
+  employeeSalaryComponents EmployeeSalaryComponent[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

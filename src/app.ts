@@ -54,7 +54,8 @@ app.use('/api/teams', teamRoutes);
 app.use('/api/dashboard', require('./routes/dashboard.routes').default);
 app.use('/api/reports', authenticate,reportRoutes);
 app.use("/api/company-setting", companySettingRoutes);
-
+app.use("/api/audit-logs", auditLogRoutes);
+app.use("/api/payroll", payrollRoutes);
 //app.use("/uploads", express.static("uploads"));
 app.use("/api/push-notification", pushNotificationRoutes);
 app.use("/api/custom-fields", customFieldsRoutes);
