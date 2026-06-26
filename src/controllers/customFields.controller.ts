@@ -30,13 +30,19 @@ export const getCustomFields = async (req: Request, res: Response) => {
 export const createCustomField = async (req: Request, res: Response) => {
     try {
         const { tenantId } = req.user as any;
-        const { name, category, employeeIds = [] } = req.body;
+        const { name, category, type = "TEXT", employeeIds = [] } = req.body;
 
         if (!name || !name.trim()) {
             return res.status(400).json({ error: "Field name is required" });
         }
         if (!category || !["PERSONAL_DETAILS", "DOCUMENT_VAULT"].includes(category)) {
             return res.status(400).json({ error: "Invalid category. Must be PERSONAL_DETAILS or DOCUMENT_VAULT" });
+        }
+
+        const validTypes = ["TEXT", "NUMBER", "EMAIL", "PASSWORD", "RADIO", "FILE", "PDF", "IMAGE"];
+        const normalizedType = String(type).toUpperCase();
+        if (!validTypes.includes(normalizedType)) {
+            return res.status(400).json({ error: `Invalid type. Must be one of: ${validTypes.join(", ")}` });
         }
 
         const normalizedName = name.trim();
@@ -56,15 +62,17 @@ export const createCustomField = async (req: Request, res: Response) => {
                 data: {
                     name: normalizedName,
                     category,
+                    type: normalizedType,
                     tenantId
                 }
             });
 
-            // 2. Fetch EmployeeProfiles for the selected user IDs to get their profile.id
+            // 2. Fetch all active EmployeeProfiles for this tenant to assign the field to everyone
             const profiles = await tx.employeeProfile.findMany({
                 where: {
-                    userId: { in: employeeIds.map(Number) },
-                    tenantId
+                    tenantId,
+                    isActive: true,
+                    deletedAt: null
                 }
             });
 
