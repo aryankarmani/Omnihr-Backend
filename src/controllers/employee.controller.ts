@@ -309,6 +309,7 @@ export const createEmployee = async (req: Request, res: Response) => {
             uan, pfNumber, esic, pan, aadhaar,
             bankName, accountNumber, ifsc,
             salary,
+            customFieldValues = {},
         } = data;
 
         // Basic validation
@@ -441,8 +442,49 @@ export const createEmployee = async (req: Request, res: Response) => {
             });
 
 
-            const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
-            if (files) {
+            // Parse flat req.files array into a fieldname mapping
+            const filesArray = req.files as Express.Multer.File[] | undefined;
+            const files: { [fieldname: string]: Express.Multer.File[] } = {};
+            if (filesArray) {
+                filesArray.forEach(file => {
+                    if (!files[file.fieldname]) {
+                        files[file.fieldname] = [];
+                    }
+                    files[file.fieldname].push(file);
+                });
+            }
+
+            // Create custom field assignments for all active custom fields for the tenant
+            const cfMasters = await tx.customField.findMany({
+                where: { tenantId }
+            });
+
+            if (cfMasters.length > 0) {
+                const cfPromises = cfMasters.map(async (cf) => {
+                    const value = customFieldValues[cf.id] !== undefined ? String(customFieldValues[cf.id]) : null;
+                    
+                    // Check if there is an uploaded file for this custom field
+                    const fileArr = files[`custom-file-${cf.id}`];
+                    const file = fileArr && fileArr[0];
+                    const docUrl = file ? file.filename : null;
+                    const docName = file ? file.originalname : null;
+
+                    return tx.customFieldAssignment.create({
+                        data: {
+                            fieldId: cf.id,
+                            employeeProfileId: profile.id,
+                            value,
+                            documentUrl: docUrl,
+                            documentName: docName,
+                            tenantId
+                        }
+                    });
+                });
+                await Promise.all(cfPromises);
+            }
+
+            // Save standard documents
+            if (filesArray && filesArray.length > 0) {
                 const docPromises = [];
                 for (const fieldName of ['aadhaar', 'pan', 'degree']) {
                     const fileArr = files[fieldName];
