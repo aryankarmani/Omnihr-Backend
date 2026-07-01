@@ -378,7 +378,7 @@ export const updateRole = async (req: Request, res: Response) => {
 
         
 
-        console.log("Update role body:", req.body);
+        // console.log("Update role body:", req.body);
 
         const role = await prisma.role.update({
             where: { id: Number(id) },
