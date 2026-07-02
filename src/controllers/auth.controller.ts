@@ -20,7 +20,7 @@ const createAccessToken = (user: any) => {
       email: user.email,
       tenantId: user.tenantId,
       roleId: user.roleId,
-      role: user.role?.name || "EMPLOYEE",
+      role: (user.role?.name || "EMPLOYEE").toUpperCase(),
     },
     process.env.JWT_SECRET || "secret",
     { expiresIn: ACCESS_TOKEN_EXPIRES_IN }
@@ -124,7 +124,7 @@ export const register = async (req: Request, res: Response) => {
         id: user.id,
         name: user.name,
         email: user.email,
-        role: user.role?.name || "HR_ADMIN",
+        role: (user.role?.name || "HR_ADMIN").toUpperCase(),
         tenantId: user.tenantId,
         tenantName: user.tenant?.name,
         accessibleModules: user.role?.accessibleModules
@@ -199,7 +199,7 @@ export const login = async (req: Request, res: Response) => {
         id: user.id,
         name: user.name,
         email: user.email,
-        role: user.role?.name || "EMPLOYEE",
+        role: (user.role?.name || "EMPLOYEE").toUpperCase(),
         tenantId: user.tenantId,
         tenantName: user.tenant?.name,
         accessibleModules: user.role?.accessibleModules

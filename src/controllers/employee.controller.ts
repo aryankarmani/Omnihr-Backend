@@ -460,7 +460,8 @@ export const createEmployee = async (req: Request, res: Response) => {
             });
 
             if (cfMasters.length > 0) {
-                const cfPromises = cfMasters.map(async (cf) => {
+                const customFieldsMap: Record<string, any> = {};
+                cfMasters.forEach((cf) => {
                     const value = customFieldValues[cf.id] !== undefined ? String(customFieldValues[cf.id]) : null;
                     
                     // Check if there is an uploaded file for this custom field
@@ -469,18 +470,19 @@ export const createEmployee = async (req: Request, res: Response) => {
                     const docUrl = file ? file.filename : null;
                     const docName = file ? file.originalname : null;
 
-                    return tx.customFieldAssignment.create({
-                        data: {
-                            fieldId: cf.id,
-                            employeeProfileId: profile.id,
-                            value,
-                            documentUrl: docUrl,
-                            documentName: docName,
-                            tenantId
-                        }
-                    });
+                    customFieldsMap[cf.id] = {
+                        value,
+                        documentUrl: docUrl,
+                        documentName: docName
+                    };
                 });
-                await Promise.all(cfPromises);
+
+                await tx.employeeProfile.update({
+                    where: { id: profile.id },
+                    data: {
+                        customFields: JSON.stringify(customFieldsMap)
+                    }
+                });
             }
 
             // Save standard documents
