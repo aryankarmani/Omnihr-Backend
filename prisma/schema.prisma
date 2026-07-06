@@ -307,7 +307,8 @@ model EmployeeProfile {
   tenantId String
   tenant   Tenant @relation(fields: [tenantId], references: [id])
 
-  customFieldAssignments CustomFieldAssignment[]
+  customFields          String? // stores JSON string of custom fields
+  CustomFieldAssignment CustomFieldAssignment[]
 }
 
 model StatutoryDetails {
@@ -803,16 +804,16 @@ model CompanySetting {
 }
 
 model CustomField {
-  id        String   @id @default(uuid())
-  name      String
-  category  String // "PERSONAL_DETAILS" or "DOCUMENT_VAULT"
-  type      String   @default("TEXT") // e.g. "TEXT", "NUMBER", "EMAIL", "PASSWORD", "RADIO", "FILE"
-  tenantId  String
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  assignments CustomFieldAssignment[]
+  id                    String                  @id @default(uuid())
+  name                  String
+  category              String // "PERSONAL_DETAILS" or "DOCUMENT_VAULT"
+  type                  String                  @default("TEXT") // e.g. "TEXT", "NUMBER", "EMAIL", "PASSWORD", "RADIO", "FILE"
+  options               String? // comma-separated list of radio options, e.g. "Male, Female"
+  tenantId              String
+  tenant                Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+  CustomFieldAssignment CustomFieldAssignment[]
 
   @@unique([name, category, tenantId])
 }

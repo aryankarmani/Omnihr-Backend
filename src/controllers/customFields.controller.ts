@@ -30,7 +30,7 @@ export const getCustomFields = async (req: Request, res: Response) => {
 export const createCustomField = async (req: Request, res: Response) => {
     try {
         const { tenantId } = req.user as any;
-        const { name, category, type = "TEXT", employeeIds = [] } = req.body;
+        const { name, category, type = "TEXT", options, employeeIds = [] } = req.body;
 
         if (!name || !name.trim()) {
             return res.status(400).json({ error: "Field name is required" });
@@ -56,41 +56,17 @@ export const createCustomField = async (req: Request, res: Response) => {
             return res.status(400).json({ error: "A custom field with this name already exists in this category" });
         }
 
-        const result = await prisma.$transaction(async (tx) => {
-            // 1. Create the CustomField
-            const field = await tx.customField.create({
-                data: {
-                    name: normalizedName,
-                    category,
-                    type: normalizedType,
-                    tenantId
-                }
-            });
-
-            // 2. Fetch all active EmployeeProfiles for this tenant to assign the field to everyone
-            const profiles = await tx.employeeProfile.findMany({
-                where: {
-                    tenantId,
-                    isActive: true,
-                    deletedAt: null
-                }
-            });
-
-            // 3. Create assignments
-            if (profiles.length > 0) {
-                await tx.customFieldAssignment.createMany({
-                    data: profiles.map(p => ({
-                        fieldId: field.id,
-                        employeeProfileId: p.id,
-                        tenantId
-                    }))
-                });
+        const field = await prisma.customField.create({
+            data: {
+                name: normalizedName,
+                category,
+                type: normalizedType,
+                options: options ? String(options).trim() : null,
+                tenantId
             }
-
-            return field;
         });
 
-        res.status(201).json(result);
+        res.status(201).json(field);
     } catch (error: any) {
         console.error("Create custom field error:", error);
         res.status(500).json({ error: "Failed to create custom field", details: error.message });
@@ -138,9 +114,24 @@ export const getEmployeeCustomFields = async (req: Request, res: Response) => {
             return res.status(404).json({ error: "Employee profile not found" });
         }
 
-        const assignments = await prisma.customFieldAssignment.findMany({
-            where: { employeeProfileId: profile.id, tenantId },
-            include: { field: true }
+        const fields = await prisma.customField.findMany({
+            where: { tenantId }
+        });
+
+        const customFieldsMap = profile.customFields ? JSON.parse(profile.customFields) : {};
+
+        const assignments = fields.map(field => {
+            const answer = customFieldsMap[field.id] || {};
+            return {
+                id: `${profile.id}-${field.id}`, // Mock assignment ID
+                fieldId: field.id,
+                employeeProfileId: profile.id,
+                value: answer.value !== undefined ? answer.value : null,
+                documentUrl: answer.documentUrl !== undefined ? answer.documentUrl : null,
+                documentName: answer.documentName !== undefined ? answer.documentName : null,
+                tenantId: field.tenantId,
+                field: field
+            };
         });
 
         res.json(assignments);
@@ -167,25 +158,21 @@ export const updateEmployeeCustomFields = async (req: Request, res: Response) =>
             return res.status(404).json({ error: "Employee profile not found" });
         }
 
-        const promises = Object.entries(customFields).map(async ([fieldId, value]) => {
-            return prisma.customFieldAssignment.upsert({
-                where: {
-                    fieldId_employeeProfileId: {
-                        fieldId,
-                        employeeProfileId: profile.id
-                    }
-                },
-                update: { value: value !== null ? String(value) : null },
-                create: {
-                    fieldId,
-                    employeeProfileId: profile.id,
-                    value: value !== null ? String(value) : null,
-                    tenantId
-                }
-            });
-        });
+        const customFieldsMap = profile.customFields ? JSON.parse(profile.customFields) : {};
 
-        await Promise.all(promises);
+        for (const [fieldId, value] of Object.entries(customFields)) {
+            if (!customFieldsMap[fieldId]) {
+                customFieldsMap[fieldId] = {};
+            }
+            customFieldsMap[fieldId].value = value !== null ? String(value) : null;
+        }
+
+        await prisma.employeeProfile.update({
+            where: { id: profile.id },
+            data: {
+                customFields: JSON.stringify(customFieldsMap)
+            }
+        });
 
         res.json({ message: "Custom fields updated successfully" });
     } catch (error: any) {
@@ -215,27 +202,34 @@ export const uploadCustomFieldDocument = async (req: Request, res: Response) => 
             return res.status(404).json({ error: "Employee profile not found" });
         }
 
-        // Upsert assignment with file information
-        const assignment = await prisma.customFieldAssignment.upsert({
-            where: {
-                fieldId_employeeProfileId: {
-                    fieldId,
-                    employeeProfileId: profile.id
-                }
-            },
-            update: {
-                documentUrl: file.filename,
-                documentName: file.originalname
-            },
-            create: {
-                fieldId,
-                employeeProfileId: profile.id,
-                documentUrl: file.filename,
-                documentName: file.originalname,
-                tenantId
-            },
-            include: { field: true }
+        const customFieldsMap = profile.customFields ? JSON.parse(profile.customFields) : {};
+
+        if (!customFieldsMap[fieldId]) {
+            customFieldsMap[fieldId] = {};
+        }
+        customFieldsMap[fieldId].documentUrl = file.filename;
+        customFieldsMap[fieldId].documentName = file.originalname;
+
+        await prisma.employeeProfile.update({
+            where: { id: profile.id },
+            data: {
+                customFields: JSON.stringify(customFieldsMap)
+            }
         });
+
+        const field = await prisma.customField.findUnique({
+            where: { id: fieldId }
+        });
+
+        const assignment = {
+            id: `${profile.id}-${fieldId}`,
+            fieldId,
+            employeeProfileId: profile.id,
+            documentUrl: file.filename,
+            documentName: file.originalname,
+            tenantId,
+            field
+        };
 
         res.status(201).json(assignment);
     } catch (error: any) {
@@ -260,29 +254,17 @@ export const deleteCustomFieldDocument = async (req: Request, res: Response) => 
             return res.status(404).json({ error: "Employee profile not found" });
         }
 
-        const assignment = await prisma.customFieldAssignment.findUnique({
-            where: {
-                fieldId_employeeProfileId: {
-                    fieldId,
-                    employeeProfileId: profile.id
-                }
-            }
-        });
+        const customFieldsMap = profile.customFields ? JSON.parse(profile.customFields) : {};
 
-        if (!assignment) {
-            return res.status(404).json({ error: "Assignment not found" });
+        if (customFieldsMap[fieldId]) {
+            customFieldsMap[fieldId].documentUrl = null;
+            customFieldsMap[fieldId].documentName = null;
         }
 
-        await prisma.customFieldAssignment.update({
-            where: {
-                fieldId_employeeProfileId: {
-                    fieldId,
-                    employeeProfileId: profile.id
-                }
-            },
+        await prisma.employeeProfile.update({
+            where: { id: profile.id },
             data: {
-                documentUrl: null,
-                documentName: null
+                customFields: JSON.stringify(customFieldsMap)
             }
         });
 
