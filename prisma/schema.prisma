@@ -805,7 +805,7 @@ model CompanySetting {
 model CustomField {
   id        String   @id @default(uuid())
   name      String
-  category  String   // "PERSONAL_DETAILS" or "DOCUMENT_VAULT"
+  category  String // "PERSONAL_DETAILS" or "DOCUMENT_VAULT"
   type      String   @default("TEXT") // e.g. "TEXT", "NUMBER", "EMAIL", "PASSWORD", "RADIO", "FILE"
   tenantId  String
   tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -823,9 +823,9 @@ model CustomFieldAssignment {
   field             CustomField     @relation(fields: [fieldId], references: [id], onDelete: Cascade)
   employeeProfileId Int
   profile           EmployeeProfile @relation(fields: [employeeProfileId], references: [id], onDelete: Cascade)
-  value             String?         // Used for PERSONAL_DETAILS fields
-  documentUrl       String?         // Used for DOCUMENT_VAULT fields (uploaded filename)
-  documentName      String?         // Original filename of document
+  value             String? // Used for PERSONAL_DETAILS fields
+  documentUrl       String? // Used for DOCUMENT_VAULT fields (uploaded filename)
+  documentName      String? // Original filename of document
   tenantId          String
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
@@ -880,5 +880,3 @@ model EmployeeSalaryComponent {
   @@index([tenantId])
   @@index([profileId])
 }
-
-
