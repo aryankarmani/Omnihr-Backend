@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import {
+        register,
         login,
         refreshToken,
         logout,
@@ -9,6 +10,9 @@ import {
 } from '../controllers/auth.controller';
 
 const router = Router();
+
+// ✅ Register first/new admin
+router.post("/register", register);
 
 router.post('/login', login);
 // ✅ NEW: Frontend api.ts calls this route

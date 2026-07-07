@@ -2,6 +2,9 @@ import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { createNotification, notifyAdmins } from '../utils/notification';
 import { getManagerTeamMemberIds, isAdminOrManager } from "../utils/teamScope";
+import { createAuditLog } from "../utils/auditLog";
+
+import { sendPushNotificationToUser } from "./pushNotification.controller";
 
 const prisma = new PrismaClient();
 
@@ -12,6 +15,56 @@ interface AuthRequest extends Request {
 // UPDATED: Common admin role checker
 const isAdmin = (user: any) => {
     return ['HR_ADMIN', 'ADMIN', 'SYSTEM_ADMIN'].includes(user?.role);
+};
+
+const sendAttendancePushToApprovers = async ({
+  tenantId,
+  employeeUserId,
+  title,
+  body,
+}: {
+  tenantId: string;
+  employeeUserId: number;
+  title: string;
+  body: string;
+}) => {
+  try {
+    const employee = await prisma.user.findFirst({
+      where: { id: employeeUserId, tenantId },
+      select: { managerId: true },
+    });
+
+    const admins = await prisma.user.findMany({
+      where: {
+        tenantId,
+        isActive: true,
+        deletedAt: null,
+        role: {
+          name: {
+            in: ["HR_ADMIN", "SYSTEM_ADMIN", "ADMIN"],
+          },
+        },
+      },
+      select: { id: true },
+    });
+
+    const approverIds = new Set<number>();
+
+    admins.forEach((admin) => approverIds.add(admin.id));
+
+    // ✅ Send to manager also
+    if (employee?.managerId) {
+      approverIds.add(employee.managerId);
+    }
+
+    await Promise.all(
+      Array.from(approverIds).map((id) =>
+        sendPushNotificationToUser(id, title, body)
+      )
+    );
+  } catch (error) {
+    console.error("Attendance approver push error:", error);
+  }
 };
 
 // ✅ ADDED: HR Admin can access everyone,
@@ -102,9 +155,9 @@ export const punchToggle = async (req: AuthRequest, res: Response) => {
             where: {
                 userId_date: {
                     userId,
-                    date: today
-                }
-            }
+                    date: today,
+                },
+            },
         });
 
         if (!record) {
@@ -118,7 +171,7 @@ export const punchToggle = async (req: AuthRequest, res: Response) => {
                     status: 'APPROVED',
                     startDate: { lte: endOfDay },
                     endDate: { gte: startOfDay }
-                }
+                },
             });
 
             if (approvedLeave) {
@@ -145,35 +198,51 @@ export const punchToggle = async (req: AuthRequest, res: Response) => {
                 }
             });
             if (status === 'Late') {
-                await createNotification({
-                    tenantId,
-                    userId,
-                    title: 'Attendance Alert',
-                    message: 'You were marked late today. Please regularize your attendance if needed.',
-                    type: 'attendance',
-                });
-            }
+               
+        const title = "Attendance Alert";
+        const message =
+          "You were marked late today. Please regularize your attendance if needed.";
+
+               await createNotification({
+          tenantId,
+          userId,
+          title,
+          message,
+          type: "attendance",
+        });
+
+        // ✅ NEW: Push notification to employee
+        await sendPushNotificationToUser(userId, title, message);
+      }
 
             return res.json({ message: 'Punched in successfully', record });
-        } else if (record.inTime && !record.outTime) {
-            // Punch Out
-            const inTime = new Date(record.inTime);
-            const hours = (now.getTime() - inTime.getTime()) / (1000 * 60 * 60);
+        } if (record.inTime && !record.outTime) {
+      const inTime = new Date(record.inTime);
+      const hours = (now.getTime() - inTime.getTime()) / (1000 * 60 * 60);
 
-            record = await prisma.attendanceRecord.update({
-                where: { id: record.id },
-                data: {
-                    outTime: now,
-                    hours: parseFloat(hours.toFixed(2))
-                }
-            });
-            return res.json({ message: 'Punched out successfully', record });
-        } else {
-            return res.status(400).json({ message: 'Already punched out for today' });
-        }
-    } catch (error: any) {
-        res.status(500).json({ message: 'Error during punch toggle', error: error.message });
+      record = await prisma.attendanceRecord.update({
+        where: { id: record.id },
+        data: {
+          outTime: now,
+          hours: parseFloat(hours.toFixed(2)),
+        },
+      });
+
+      return res.json({
+        message: "Punched out successfully",
+        record,
+      });
     }
+
+    return res.status(400).json({
+      message: "Already punched out for today",
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      message: "Error during punch toggle",
+      error: error.message,
+    });
+  }
 };
 
 export const getAttendanceHistory = async (req: AuthRequest, res: Response) => {
@@ -363,25 +432,51 @@ export const applyRegularization = async (req: AuthRequest, res: Response) => {
             },
         });
 
-        // UPDATED: Notify admins when request is submitted
-        await notifyAdmins({
-            tenantId,
-            title: 'Attendance Correction Request',
-            message: `${request.user?.name || request.user?.email || 'Employee'} submitted attendance regularization for ${date}.`,
-            type: 'attendance',
-        });
+        const title = "Attendance Correction Request";
+    const message = `${
+      request.user?.name || request.user?.email || "Employee"
+    } submitted attendance regularization for ${date}.`;
 
-        res.status(201).json({
-            message: 'Attendance regularization request submitted successfully',
-            request,
-        });
-    } catch (error: any) {
-        console.error('Regularization apply error:', error);
-        res.status(500).json({
-            message: 'Error submitting regularization request',
-            error: error.message,
-        });
-    }
+    // ✅ OLD: In-app notification to admins
+    await notifyAdmins({
+      tenantId,
+      title,
+      message,
+      type: "attendance",
+    });
+
+    // ✅ NEW: Push notification to HR/Admin/Manager
+    await sendAttendancePushToApprovers({
+      tenantId,
+      employeeUserId: userId,
+      title,
+      body: message,
+    });
+
+    await createAuditLog({
+  tenantId,
+  module: "Regularization",
+  action: "Requested",
+  description: `${request.user?.name || "Employee"} submitted attendance regularization for ${date}.`,
+  performedById: userId,
+  performedBy: request.user?.name || "Employee",
+  performedByRole: req.user?.role,
+  targetUserId: userId,
+  targetUser: request.user?.name || "Employee",
+  targetUserRole: "EMPLOYEE",
+});
+
+    res.status(201).json({
+      message: "Attendance regularization request submitted successfully",
+      request,
+    });
+  } catch (error: any) {
+    console.error("Regularization apply error:", error);
+    res.status(500).json({
+      message: "Error submitting regularization request",
+      error: error.message,
+    });
+  }
 };
 
 // UPDATED: 2. Employee views own requests
@@ -421,8 +516,10 @@ export const getPendingRegularizations = async (req: AuthRequest, res: Response)
 
         // ✅ CHANGED: HR admin sees all, manager sees only own team
         if (!isAdmin(req.user)) {
+        
             const memberIds = await getManagerTeamMemberIds(tenantId, userId);
 
+           
             if (memberIds.length === 0) {
                 return res.status(403).json({
                     message: "Only admin or team manager can view pending regularization requests",
@@ -435,6 +532,7 @@ export const getPendingRegularizations = async (req: AuthRequest, res: Response)
         }
 
         const requests = await prisma.attendanceRegularization.findMany({
+            
             // ✅ CHANGED: use whereClause
             where: whereClause,
             include: {
@@ -455,6 +553,7 @@ export const getPendingRegularizations = async (req: AuthRequest, res: Response)
             },
             orderBy: {
                 createdAt: "desc",
+               
             },
         });
 
@@ -462,6 +561,7 @@ export const getPendingRegularizations = async (req: AuthRequest, res: Response)
     } catch (error: any) {
         res.status(500).json({
             message: "Error fetching pending regularization requests",
+          
             error: error.message,
         });
     }
@@ -479,6 +579,7 @@ export const approveRegularization = async (req: AuthRequest, res: Response) => 
                 id: Number(id),
                 tenantId,
                 status: "PENDING",
+               
             },
             include: {
                 user: true,
@@ -501,8 +602,11 @@ export const approveRegularization = async (req: AuthRequest, res: Response) => 
         if (!allowed) {
             return res.status(403).json({
                 message: "You can approve only your team member regularization requests",
+                
             });
         }
+
+        
 
         const { status, hours } = calculateRegularizedStatus(
             request.proposedIn,
@@ -548,26 +652,45 @@ export const approveRegularization = async (req: AuthRequest, res: Response) => 
 
             return { attendance, updatedRequest };
         });
+ const title = "Attendance Correction Approved";
+    const message = `Your attendance correction for ${request.date} has been approved.`;
 
-        await createNotification({
-            tenantId,
-            userId: request.userId,
-            title: "Attendance Correction Approved",
-            message: `Your attendance correction for ${request.date} has been approved.`,
-            type: "attendance",
-        });
+    // ✅ OLD: In-app notification
+    await createNotification({
+      tenantId,
+      userId: request.userId,
+      title,
+      message,
+      type: "attendance",
+    });
 
-        res.json({
-            message: "Regularization approved and attendance updated successfully",
-            ...result,
-        });
-    } catch (error: any) {
-        console.error("Approve regularization error:", error);
-        res.status(500).json({
-            message: "Error approving regularization request",
-            error: error.message,
-        });
-    }
+    // ✅ NEW: Push notification to employee
+    await sendPushNotificationToUser(request.userId, title, message);
+
+    await createAuditLog({
+  tenantId,
+  module: "Regularization",
+  action: "Approved",
+  description: `${request.user?.name || "Employee"}'s attendance regularization for ${request.date} was approved.`,
+  performedById: approverId,
+  performedBy: req.user?.email || "Admin",
+  performedByRole: req.user?.role,
+  targetUserId: request.userId,
+  targetUser: request.user?.name || "Employee",
+  targetUserRole: "EMPLOYEE",
+});
+
+    res.json({
+      message: "Regularization approved and attendance updated successfully",
+      ...result,
+    });
+  } catch (error: any) {
+    console.error("Approve regularization error:", error);
+    res.status(500).json({
+      message: "Error approving regularization request",
+      error: error.message,
+    });
+  }
 };
 
 // UPDATED: 5. Admin rejects regularization
@@ -583,6 +706,7 @@ export const rejectRegularization = async (req: AuthRequest, res: Response) => {
                 id: Number(id),
                 tenantId,
                 status: "PENDING",
+                
             },
         });
 
@@ -602,8 +726,11 @@ export const rejectRegularization = async (req: AuthRequest, res: Response) => {
         if (!allowed) {
             return res.status(403).json({
                 message: "You can reject only your team member regularization requests",
+               
             });
         }
+
+       
 
         const updatedRequest = await prisma.attendanceRegularization.update({
             where: {
@@ -611,31 +738,55 @@ export const rejectRegularization = async (req: AuthRequest, res: Response) => {
             },
             data: {
                 status: "REJECTED",
+                
                 rejectedAt: new Date(),
                 approverId,
                 approverComment: reason || "Rejected",
+                
             },
         });
 
-        await createNotification({
-            tenantId,
-            userId: request.userId,
-            title: "Attendance Correction Rejected",
-            message: `Your attendance correction for ${request.date} was rejected. Reason: ${reason || "No reason provided"}`,
-            type: "attendance",
-        });
+         const title = "Attendance Correction Rejected";
+    const message = `Your attendance correction for ${
+      request.date
+    } was rejected. Reason: ${reason || "No reason provided"}`;
 
-        res.json({
-            message: "Regularization request rejected successfully",
-            request: updatedRequest,
-        });
-    } catch (error: any) {
-        console.error("Reject regularization error:", error);
-        res.status(500).json({
-            message: "Error rejecting regularization request",
-            error: error.message,
-        });
-    }
+    // ✅ OLD: In-app notification
+    await createNotification({
+      tenantId,
+      userId: request.userId,
+      title,
+      message,
+      type: "attendance",
+    });
+
+    // ✅ NEW: Push notification to employee
+    await sendPushNotificationToUser(request.userId, title, message);
+
+    await createAuditLog({
+  tenantId,
+  module: "Regularization",
+  action: "Rejected",
+  description: `${request.userId}'s attendance regularization for ${request.date} was rejected.`,
+  performedById: approverId,
+  performedBy: req.user?.email || "Admin",
+  performedByRole: req.user?.role,
+  targetUserId: request.userId,
+  targetUser: `User ${request.userId}`,
+  targetUserRole: "EMPLOYEE",
+});
+
+    res.json({
+      message: "Regularization request rejected successfully",
+      request: updatedRequest,
+    });
+  } catch (error: any) {
+    console.error("Reject regularization error:", error);
+    res.status(500).json({
+      message: "Error rejecting regularization request",
+      error: error.message,
+    });
+  }
 };
 
 // UPDATED: 6. Admin force regularization / direct override
@@ -661,6 +812,7 @@ export const forceRegularizeAttendance = async (req: AuthRequest, res: Response)
 
             return memberIds.includes(targetUserId);
         };
+       
 
         const {
             employeeId,
@@ -744,23 +896,30 @@ export const forceRegularizeAttendance = async (req: AuthRequest, res: Response)
             },
         });
 
-        await createNotification({
-            tenantId,
-            userId,
-            title: 'Attendance Updated by HR',
-            message: `Your attendance for ${date} was directly corrected by HR.`,
-            type: 'attendance',
-        });
+        const title = "Attendance Updated by HR";
+    const message = `Your attendance for ${date} was directly corrected by HR.`;
 
-        res.json({
-            message: 'Attendance directly regularized successfully',
-            attendance,
-        });
-    } catch (error: any) {
-        console.error('Force regularization error:', error);
-        res.status(500).json({
-            message: 'Error directly regularizing attendance',
-            error: error.message,
-        });
-    }
+    // ✅ OLD: In-app notification
+    await createNotification({
+      tenantId,
+      userId,
+      title,
+      message,
+      type: "attendance",
+    });
+
+    // ✅ NEW: Push notification to employee
+    await sendPushNotificationToUser(userId, title, message);
+
+    res.json({
+      message: "Attendance directly regularized successfully",
+      attendance,
+    });
+  } catch (error: any) {
+    console.error("Force regularization error:", error);
+    res.status(500).json({
+      message: "Error directly regularizing attendance",
+      error: error.message,
+    });
+  }
 };

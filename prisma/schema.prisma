@@ -44,6 +44,8 @@ model Tenant {
   plan      String   @default("FREE")
   createdAt DateTime @default(now())
 
+  salaryRevisions SalaryRevision[]
+
   users             User[]
   roles             Role[]
   leaves            Leave[]
@@ -73,8 +75,11 @@ model Tenant {
   investmentDeclarations InvestmentDeclaration[]
   teams                  Team[]
 
+  employeeSalaryComponents EmployeeSalaryComponent[]
+
   // existing fields...
   notifications Notification[]
+  auditLogs     AuditLog[]
 }
 
 model Role {
@@ -117,6 +122,8 @@ model User {
   email    String
   password String? // For auth
   name     String
+
+  fcmToken String?
 
   // UPDATED: Soft delete fields
   isActive  Boolean   @default(true)
@@ -190,10 +197,10 @@ model Leave {
   leaveTypeId String
   leaveType   LeaveType @relation(fields: [leaveTypeId], references: [id])
 
-  reason    String
-  startDate DateTime
-  endDate   DateTime
-  status    String   @default("PENDING")
+  reason          String
+  startDate       DateTime
+  endDate         DateTime
+  status          String   @default("PENDING")
   rejectionReason String?
 
   // Relations
@@ -275,6 +282,9 @@ model EmployeeProfile {
   locationRef    Location?    @relation(fields: [locationId], references: [id])
   shiftRef       Shift?       @relation(fields: [shiftId], references: [id])
 
+  salaryHistory    SalaryRevision[]
+  salaryComponents EmployeeSalaryComponent[]
+
   phone       String?
   dob         DateTime?
   joiningDate DateTime?
@@ -349,8 +359,48 @@ model SalaryStructure {
 
   // Computed / LWP
   totalSalary  Float @default(0)
-  lwpDays      Int   @default(0)
+  lwpDays      Float @default(0)
   lwpDeduction Float @default(0)
+}
+
+// ✅ ADDED: Stores month-wise salary changes
+model SalaryRevision {
+  id Int @id @default(autoincrement())
+
+  profileId Int
+  profile   EmployeeProfile @relation(fields: [profileId], references: [id])
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+
+  salaryMonth String // Example: "2026-06"
+
+  // Previous salary
+  previousBasic   Float @default(0)
+  previousHra     Float @default(0)
+  previousSpecial Float @default(0)
+  previousMedical Float @default(0)
+  previousPf      Float @default(0)
+  previousPt      Float @default(0)
+  previousTax     Float @default(0)
+  previousTotal   Float @default(0)
+
+  // Updated salary
+  updatedBasic   Float @default(0)
+  updatedHra     Float @default(0)
+  updatedSpecial Float @default(0)
+  updatedMedical Float @default(0)
+  updatedPf      Float @default(0)
+  updatedPt      Float @default(0)
+  updatedTax     Float @default(0)
+  updatedTotal   Float @default(0)
+
+  updatedById Int?
+  createdAt   DateTime @default(now())
+
+  @@unique([profileId, salaryMonth])
+  @@index([tenantId])
+  @@index([profileId])
 }
 
 // -- Masters Schema --
@@ -489,6 +539,8 @@ model SalaryComponent {
   // Calculation
   calculationType String @default("FLAT") // FLAT, %_BASIC
   value           Float? // Fixed amt or %
+
+  employeeSalaryComponents EmployeeSalaryComponent[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -745,4 +797,52 @@ model CompanySetting {
   authorizedSignImage String?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
+}
+
+model AuditLog {
+  id Int @id @default(autoincrement())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  module      String
+  action      String
+  description String
+
+  performedById   Int?
+  performedBy     String
+  performedByRole String?
+
+  targetUserId   Int?
+  targetUser     String?
+  targetUserRole String?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([module])
+  @@index([action])
+}
+
+model EmployeeSalaryComponent {
+  id Int @id @default(autoincrement())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  profileId Int
+  profile   EmployeeProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  componentId String
+  component   SalaryComponent @relation(fields: [componentId], references: [id], onDelete: Cascade)
+
+  // ✅ If amount is null, backend calculates using master value
+  amount Float?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([profileId, componentId])
+  @@index([tenantId])
+  @@index([profileId])
 }

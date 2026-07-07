@@ -66,6 +66,8 @@ async function main() {
         create: {
             name: 'HR_ADMIN',
             tenantId: tenant.id,
+            accessibleModules:
+            'DASHBOARD,ATTENDANCE,EMPLOYEE,TEAM,LEAVE,REPORTS,MASTERS,TASK,MY_PROFILE,EMPLOYEE_ATTENDANCE',
             permissions: { connect: permissions.map(p => ({ code: p.code })) } // Connect all
         }
     });
