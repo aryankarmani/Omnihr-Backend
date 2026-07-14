@@ -42,9 +42,9 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Backend is running' });
 });
 
-app.get('/api/debug-routes', (req, res) => {
-  res.json({ message: "Debug route working ✅" });
-});
+// app.get('/api/debug-routes', (req, res) => {
+//   res.json({ message: "Debug route working ✅" });
+// });
 
 app.use('/api/chat', chatRoutes);
 app.use('/api/employee', employeeRoutes);
@@ -54,7 +54,7 @@ app.use('/api/attendance', attendanceRoutes);
 app.use('/api/leave', leaveRoutes);
 app.use('/api/teams', teamRoutes);
 app.use('/api/dashboard', require('./routes/dashboard.routes').default);
-app.use('/api/reports', authenticate,reportRoutes);
+app.use('/api/reports', authenticate, reportRoutes);
 app.use("/api/company-setting", companySettingRoutes);
 app.use("/api/audit-logs", auditLogRoutes);
 app.use("/api/payroll", payrollRoutes);

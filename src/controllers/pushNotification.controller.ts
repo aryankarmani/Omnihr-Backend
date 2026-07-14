@@ -72,7 +72,7 @@ export const sendPushNotificationToUser = async (
     });
 
     if (!user?.fcmToken) {
-      console.log("No FCM token found for user:", userId);
+      // console.log("No FCM token found for user:", userId);
       return;
     }
 
@@ -91,7 +91,7 @@ export const sendPushNotificationToUser = async (
       },
     });
 
-    
+
   } catch (error: any) {
     console.error("Push notification failed:", error.message);
   }
