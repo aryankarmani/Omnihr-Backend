@@ -307,7 +307,8 @@ model EmployeeProfile {
   tenantId String
   tenant   Tenant @relation(fields: [tenantId], references: [id])
 
-  customFields String? // stores JSON string of custom fields
+  customFields          String? // stores JSON string of custom fields
+  CustomFieldAssignment CustomFieldAssignment[]
 }
 
 model StatutoryDetails {
@@ -803,17 +804,34 @@ model CompanySetting {
 }
 
 model CustomField {
-  id        String   @id @default(uuid())
-  name      String
-  category  String   // "PERSONAL_DETAILS" or "DOCUMENT_VAULT"
-  type      String   @default("TEXT") // e.g. "TEXT", "NUMBER", "EMAIL", "PASSWORD", "RADIO", "FILE"
-  options   String?  // comma-separated list of radio options, e.g. "Male, Female"
-  tenantId  String
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                    String                  @id @default(uuid())
+  name                  String
+  category              String // "PERSONAL_DETAILS" or "DOCUMENT_VAULT"
+  type                  String                  @default("TEXT") // e.g. "TEXT", "NUMBER", "EMAIL", "PASSWORD", "RADIO", "FILE"
+  options               String? // comma-separated list of radio options, e.g. "Male, Female"
+  tenantId              String
+  tenant                Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+  CustomFieldAssignment CustomFieldAssignment[]
 
   @@unique([name, category, tenantId])
+}
+
+model CustomFieldAssignment {
+  id                String          @id @default(uuid())
+  fieldId           String
+  field             CustomField     @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  employeeProfileId Int
+  profile           EmployeeProfile @relation(fields: [employeeProfileId], references: [id], onDelete: Cascade)
+  value             String? // Used for PERSONAL_DETAILS fields
+  documentUrl       String? // Used for DOCUMENT_VAULT fields (uploaded filename)
+  documentName      String? // Original filename of document
+  tenantId          String
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@unique([fieldId, employeeProfileId])
 }
 
 model AuditLog {
@@ -863,5 +881,3 @@ model EmployeeSalaryComponent {
   @@index([tenantId])
   @@index([profileId])
 }
-
-
