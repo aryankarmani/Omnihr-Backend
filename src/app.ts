@@ -22,6 +22,7 @@ import notificationRoutes from './routes/notification.routes';
 import { authenticate } from './middleware/auth';
 import companySettingRoutes from "./routes/companySetting.routes";
 import pushNotificationRoutes from "./routes/pushNotification.routes";
+import customFieldsRoutes from "./routes/customFields.routes";
 import auditLogRoutes from "./routes/auditLog.routes";
 import payrollRoutes from "./routes/payroll.routes";
 
@@ -59,5 +60,6 @@ app.use("/api/audit-logs", auditLogRoutes);
 app.use("/api/payroll", payrollRoutes);
 //app.use("/uploads", express.static("uploads"));
 app.use("/api/push-notification", pushNotificationRoutes);
+app.use("/api/custom-fields", customFieldsRoutes);
 
 export { app, prisma };

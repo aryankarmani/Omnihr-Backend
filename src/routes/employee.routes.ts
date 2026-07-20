@@ -1,5 +1,16 @@
 import { Router } from 'express';
-import { getEmployee, updateEmployee, addDocument, deleteDocument, getAllEmployees, createEmployee, getCurrentEmployee, deleteEmployee } from '../controllers/employee.controller';
+import { 
+  getEmployee, 
+  updateEmployee, 
+  addDocument, 
+  deleteDocument, 
+  getAllEmployees, 
+  createEmployee, 
+  getCurrentEmployee, 
+  deleteEmployee,
+  updateProfilePicture,
+  deleteProfilePicture
+} from '../controllers/employee.controller';
 import { authenticate, authorize } from '../middleware/auth'; // Assuming auth middleware exists
 import { upload } from '../middleware/upload';
 
@@ -7,14 +18,17 @@ import { upload } from '../middleware/upload';
 const router = Router();
 
 router.get('/', authenticate, getAllEmployees);
-router.post('/', authenticate, upload.fields([
-    { name: 'aadhaar', maxCount: 1 },
-    { name: 'pan', maxCount: 1 },
-    { name: 'degree', maxCount: 1 }
-]), createEmployee);
+router.post('/', authenticate, upload.any(), createEmployee);
 
 router.get('/me', authenticate, getCurrentEmployee);
 router.put('/me', authenticate, updateEmployee);
+
+// Profile Picture Routes
+router.put('/me/profile-picture', authenticate, upload.single('profilePicture'), updateProfilePicture);
+router.delete('/me/profile-picture', authenticate, deleteProfilePicture);
+
+router.put('/:id/profile-picture', authenticate, upload.single('profilePicture'), updateProfilePicture);
+router.delete('/:id/profile-picture', authenticate, deleteProfilePicture);
 
 
 // UPDATED: HR_ADMIN and SYSTEM_ADMIN can upload employee documents
