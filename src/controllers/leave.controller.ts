@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { notifyAdmins,createNotification} from '../utils/notification';
+import { notifyAdmins, createNotification } from '../utils/notification';
 import { getManagerTeamMemberIds } from "../utils/teamScope";
 import { sendPushNotificationToUser } from "./pushNotification.controller";
 import { createAuditLog } from "../utils/auditLog";
@@ -77,14 +77,14 @@ export const getLeaveBalances = async (req: Request, res: Response) => {
 
         // Fetch all leave types for the tenant
         const leaveTypes = await prisma.leaveType.findMany({
-  where: {
-    tenantId,
-    code: {
-      in: ['CL', 'SL', 'EL']
-    }
-  },
-  distinct: ['code']
-});
+            where: {
+                tenantId,
+                code: {
+                    in: ['CL', 'SL', 'EL']
+                }
+            },
+            distinct: ['code']
+        });
 
         // Fetch approved leaves for the user to calculate taken days (FOR CURRENT YEAR ONLY)
         const currentYear = new Date().getFullYear();
@@ -177,7 +177,7 @@ export const getLeaveHistory = async (req: Request, res: Response) => {
             include: {
                 leaveType: true,
                 user: {
-                    select: { 
+                    select: {
                         id: true,
                         name: true,
                         email: true,
@@ -324,7 +324,7 @@ export const updateLeaveStatus = async (req: Request, res: Response) => {
 
         const updatedLeave = await prisma.leave.update({
             where: { id: Number(id), tenantId },
-            data: { 
+            data: {
                 status,
                 rejectionReason: status === 'REJECTED' ? rejectionReason : null
             },
