@@ -28,6 +28,21 @@ import payrollRoutes from "./routes/payroll.routes";
 
 app.use(cors());
 app.use(express.json());
+
+// Gracefully handle JSON parsing errors (SyntaxError) from body-parser
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (err instanceof SyntaxError && 'status' in err && err.status === 400 && 'body' in err) {
+    console.error(`[JSON Parse Error] Invalid JSON received on ${req.method} ${req.path}`);
+    console.error('Raw Body Content:', err.body);
+    return res.status(400).json({ 
+      status: 'error', 
+      message: 'Invalid JSON format in request body',
+      details: err.message
+    });
+  }
+  next();
+});
+
 app.use('/uploads', express.static(path.join(process.cwd(), "uploads")));
 
 app.set('etag', false);
