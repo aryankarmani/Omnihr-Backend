@@ -304,7 +304,7 @@ export const createEmployee = async (req: Request, res: Response) => {
         const uploadedFiles = req.files as Express.Multer.File[] | undefined;
 
 const profilePhotoFile = uploadedFiles?.find(
-    (file) => file.fieldname === "profilePhoto"
+    (file) => file.fieldname === "profilePhoto" || file.fieldname === "profilePicture"
 );
 
 const profilePhotoPath = profilePhotoFile
@@ -552,7 +552,7 @@ const profilePhotoPath = profilePhotoFile
 
             await sendMail({
                 to: email,
-                subject: "Welcome to EnCalm HRMS - Your Account is Ready",
+                subject: "Welcome to OmniHR - Your Account is Ready",
                 html: emailContent.html,
                 text: emailContent.text,
             });

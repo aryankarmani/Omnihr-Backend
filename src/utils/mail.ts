@@ -54,7 +54,7 @@ export const employeeWelcomeTemplate = ({
           <div style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,0.08);">
             
             <div style="background:linear-gradient(135deg,#2563eb,#0f172a);padding:28px;text-align:center;color:white;">
-              <h1 style="margin:0;font-size:26px;">EnCalm HRMS</h1>
+              <h1 style="margin:0;font-size:26px;">OmniHR</h1>
               <p style="margin:8px 0 0;font-size:14px;">Employee Management Portal</p>
             </div>
 
@@ -75,7 +75,7 @@ export const employeeWelcomeTemplate = ({
               <div style="text-align:center;margin:30px 0;">
                 <a href="${loginUrl}" 
                    style="display:inline-block;background:#2563eb;color:white;text-decoration:none;padding:14px 28px;border-radius:10px;font-weight:bold;font-size:15px;">
-                  Login To EnCalm HRMS
+                  Login To OmniHR
                 </a>
               </div>
 
@@ -90,13 +90,13 @@ export const employeeWelcomeTemplate = ({
             </div>
 
             <div style="background:#f9fafb;padding:18px;text-align:center;color:#6b7280;font-size:12px;">
-              © ${new Date().getFullYear()} EnCalm HRMS. All rights reserved.
+              © ${new Date().getFullYear()} OmniHR. All rights reserved.
             </div>
           </div>
         </div>
       </div>
     `,
-    text: `Welcome ${name}. Your EnCalm HRMS account has been created. Email: ${email}, Temporary Password: ${password}, Login: ${loginUrl}`,
+    text: `Welcome ${name}. Your OmniHR account has been created. Email: ${email}, Temporary Password: ${password}, Login: ${loginUrl}`,
   };
 };
 
@@ -108,7 +108,7 @@ export const otpTemplate = ({ otp }: { otp: string }) => {
         <div style="max-width:560px;margin:0 auto;padding:30px 15px;">
           <div style="background:white;border-radius:16px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,0.08);">
             <div style="background:#0f172a;padding:24px;text-align:center;color:white;">
-              <h2 style="margin:0;">EnCalm HRMS</h2>
+              <h2 style="margin:0;">OmniHR</h2>
               <p style="margin:8px 0 0;font-size:14px;">Password Reset Verification</p>
             </div>
 
@@ -126,6 +126,6 @@ export const otpTemplate = ({ otp }: { otp: string }) => {
         </div>
       </div>
     `,
-    text: `Your EnCalm HRMS OTP is ${otp}. It is valid for 10 minutes.`,
+    text: `Your OmniHR OTP is ${otp}. It is valid for 10 minutes.`,
   };
 };
