@@ -1,14 +1,32 @@
 import nodemailer from "nodemailer";
+import dotenv from "dotenv";
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: Number(process.env.SMTP_PORT || 587),
-  secure: process.env.SMTP_SECURE === "true",
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
+dotenv.config();
+
+const getTransporter = () => {
+  const host = process.env.SMTP_HOST || "smtp.gmail.com";
+  const port = Number(process.env.SMTP_PORT || 587);
+  const secure = process.env.SMTP_SECURE === "true";
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+
+  if (!user || !pass) {
+    return null;
+  }
+
+  return nodemailer.createTransport({
+    host,
+    port,
+    secure,
+    auth: {
+      user,
+      pass,
+    },
+    tls: {
+      rejectUnauthorized: false,
+    },
+  });
+};
 
 export const sendMail = async ({
   to,
@@ -21,18 +39,27 @@ export const sendMail = async ({
   html?: string;
   text?: string;
 }) => {
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    console.log("SMTP not configured. Email skipped.");
+  const transporter = getTransporter();
+
+  if (!transporter) {
+    console.log("⚠️ SMTP not configured (SMTP_USER or SMTP_PASS missing). Email skipped.");
     return;
   }
 
-  await transporter.sendMail({
-    from: process.env.SMTP_FROM || process.env.SMTP_USER,
-    to,
-    subject,
-    html,
-    text,
-  });
+  try {
+    const info = await transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to,
+      subject,
+      html,
+      text,
+    });
+    console.log(`✅ Email sent successfully to ${to}. MessageId: ${info.messageId}`);
+    return info;
+  } catch (error) {
+    console.error(`❌ Failed to send email to ${to}:`, error);
+    throw error;
+  }
 };
 
 // ✅ ADDED: Professional employee welcome email template
