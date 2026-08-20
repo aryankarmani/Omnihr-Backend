@@ -4,11 +4,11 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const getTransporter = () => {
-  const host = process.env.SMTP_HOST || "smtp.gmail.com";
+  const host = (process.env.SMTP_HOST || "smtp.gmail.com").trim();
   const port = Number(process.env.SMTP_PORT || 587);
   const secure = process.env.SMTP_SECURE === "true";
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
+  const user = process.env.SMTP_USER?.trim();
+  const pass = process.env.SMTP_PASS?.trim();
 
   if (!user || !pass) {
     return null;
@@ -48,7 +48,7 @@ export const sendMail = async ({
 
   try {
     const info = await transporter.sendMail({
-      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      from: (process.env.SMTP_FROM || process.env.SMTP_USER || "").trim(),
       to,
       subject,
       html,
