@@ -333,7 +333,7 @@ const profilePhotoPath = profilePhotoFile
             where: { email_tenantId: { email, tenantId } }
         });
 
-        if (existingUser) {
+        if (existingUser && existingUser.isActive && !existingUser.deletedAt) {
             return res.status(400).json({ message: 'User already exists' });
         }
 
@@ -383,53 +383,69 @@ const profilePhotoPath = profilePhotoFile
             // ✅ CHANGED: Always generate random password for every employee
             const hashedPassword = await bcrypt.hash(plainPassword, 10);
 
-            // 1. Create User
-            const user = await tx.user.create({
-                data: {
-                    name,
-                    email,
-                    password: hashedPassword, // Default password
-                    tenantId,
-                    roleId: finalRoleId,
-                    isActive: true, // ✅ ADDED: ensure login query can find user
-                    deletedAt: null,
-                }
+            // 1. Create or Reactivate User
+            const user = existingUser
+                ? await tx.user.update({
+                    where: { id: existingUser.id },
+                    data: {
+                        name,
+                        password: hashedPassword,
+                        roleId: finalRoleId,
+                        isActive: true,
+                        deletedAt: null,
+                    }
+                })
+                : await tx.user.create({
+                    data: {
+                        name,
+                        email,
+                        password: hashedPassword,
+                        tenantId,
+                        roleId: finalRoleId,
+                        isActive: true,
+                        deletedAt: null,
+                    }
+                });
+
+            // 2. Create or Update Employee Profile
+            const existingProfile = await tx.employeeProfile.findFirst({
+                where: { userId: user.id, tenantId }
             });
 
-            // 2. Create Employee Profile
-            const profile = await tx.employeeProfile.create({
-                data: {
-                    userId: user.id,
-                    tenantId,
-                    phone,
+            const profileData = {
+                phone,
+                department,
+                location,
+                title: title || 'Employee',
+                departmentId: finalDepartmentId,
+                designationId: finalDesignationId,
+                locationId: locationId || null,
+                shiftId: shiftId || null,
+                joiningDate: joiningDate ? new Date(joiningDate) : new Date(),
+                status: 'Active',
+                dob: dob ? new Date(dob) : null,
+                address: address || null,
+                bloodGroup: bloodGroup || null,
+                ...(profilePhotoPath ? { avatar: profilePhotoPath } : {}),
+                isActive: true,
+                deletedAt: null,
+            };
 
-                    department,
-                    location,
-                    title: title || 'Employee',
-
-                    departmentId: finalDepartmentId,
-                    designationId: finalDesignationId,
-
-                    locationId: locationId || null,
-                    shiftId: shiftId || null,
-                    joiningDate: joiningDate ? new Date(joiningDate) : new Date(),
-                    status: 'Active',
-
-                    // NEW UPDATE: Save DOB, Address and Blood Group
-                    dob: dob ? new Date(dob) : null,
-                    address: address || null,
-                    bloodGroup: bloodGroup || null,
-                    avatar: profilePhotoPath,
-
-                    isActive: true, // ✅ ADDED
-                    deletedAt: null,
-
-                    // NEW UPDATE: Create Salary Structure while onboarding
-                    salary: {
-                        create: salaryData,
+            const profile = existingProfile
+                ? await tx.employeeProfile.update({
+                    where: { id: existingProfile.id },
+                    data: profileData,
+                })
+                : await tx.employeeProfile.create({
+                    data: {
+                        userId: user.id,
+                        tenantId,
+                        ...profileData,
+                        salary: {
+                            create: salaryData,
+                        },
                     },
-                },
-            });
+                });
 
             // 3. Create Statutory Details
             await tx.statutoryDetails.create({
