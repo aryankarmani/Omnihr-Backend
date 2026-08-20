@@ -1,7 +1,13 @@
 import nodemailer from "nodemailer";
 import dotenv from "dotenv";
+import dns from "dns";
+import net from "net";
 
 dotenv.config();
+
+// Force Node.js to prefer IPv4 over IPv6 for all DNS lookups.
+// Render's free tier doesn't support outbound IPv6, causing ENETUNREACH errors.
+dns.setDefaultResultOrder("ipv4first");
 
 const getTransporter = () => {
   const host = (process.env.SMTP_HOST || "smtp.gmail.com").trim();
@@ -22,7 +28,8 @@ const getTransporter = () => {
       user,
       pass,
     },
-    family: 4,
+    // Force IPv4 socket connections
+    connection: net.createConnection({ host, port, family: 4 }),
     tls: {
       rejectUnauthorized: false,
     },
