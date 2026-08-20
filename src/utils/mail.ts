@@ -27,6 +27,10 @@ const getTransporter = () => {
       user,
       pass,
     },
+    // Force IPv4 lookup for the SMTP connection
+    lookup: (hostname: string, options: any, callback: any) => {
+      dns.lookup(hostname, { ...options, family: 4 }, callback);
+    },
     tls: {
       rejectUnauthorized: false,
     },
