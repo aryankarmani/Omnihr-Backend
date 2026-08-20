@@ -1,7 +1,6 @@
 import nodemailer from "nodemailer";
 import dotenv from "dotenv";
 import dns from "dns";
-import net from "net";
 
 dotenv.config();
 
@@ -28,8 +27,6 @@ const getTransporter = () => {
       user,
       pass,
     },
-    // Force IPv4 socket connections
-    connection: net.createConnection({ host, port, family: 4 }),
     tls: {
       rejectUnauthorized: false,
     },
