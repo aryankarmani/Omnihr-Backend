@@ -22,10 +22,11 @@ const getTransporter = () => {
       user,
       pass,
     },
+    family: 4,
     tls: {
       rejectUnauthorized: false,
     },
-  });
+  } as any);
 };
 
 export const sendMail = async ({
