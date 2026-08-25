@@ -203,7 +203,7 @@ export const applyLeave = async (req: Request, res: Response) => {
 
         if (!userId || !tenantId) return res.status(401).json({ message: 'Unauthorized' });
 
-        const { leaveTypeCode, startDate, endDate, reason } = req.body;
+        const { leaveTypeCode, startDate, endDate, reason, fromTime, toTime } = req.body;
 
         if (!leaveTypeCode || !startDate || !endDate || !reason) {
             return res.status(400).json({ message: 'All fields are required' });
@@ -225,17 +225,27 @@ export const applyLeave = async (req: Request, res: Response) => {
                 { name: "Sick Leave", code: "SL", daysPerYear: 10 },
                 { name: "Earned Leave", code: "EL", daysPerYear: 15 },
                 { name: "Leave Without Pay", code: "LWP", daysPerYear: 0 },
+                { name: "Half Day", code: "HD", daysPerYear: 0 },
+                { name: "Short Leave", code: "SHL", daysPerYear: 0 },
             ];
 
             for (const item of defaultLeaveTypes) {
-                await prisma.leaveType.create({
-                    data: {
-                        tenantId,
-                        name: item.name,
+                const existing = await prisma.leaveType.findFirst({
+                    where: {
                         code: item.code,
-                        daysPerYear: item.daysPerYear,
-                    },
+                        tenantId,
+                    }
                 });
+                if (!existing) {
+                    await prisma.leaveType.create({
+                        data: {
+                            tenantId,
+                            name: item.name,
+                            code: item.code,
+                            daysPerYear: item.daysPerYear,
+                        },
+                    });
+                }
             }
 
             // ✅ Find again after creating defaults
@@ -260,6 +270,8 @@ export const applyLeave = async (req: Request, res: Response) => {
                 leaveTypeId: leaveType.id,
                 startDate: new Date(startDate),
                 endDate: new Date(endDate),
+                fromTime: fromTime || null,
+                toTime: toTime || null,
                 reason,
                 status: 'PENDING'
             }

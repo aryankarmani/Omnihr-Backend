@@ -538,6 +538,84 @@ export const createSalaryComponent = async (req: Request, res: Response) => {
   }
 };
 
+export const updateSalaryComponent = async (req: Request, res: Response) => {
+  try {
+    const { tenantId } = req.user as any;
+    const { id } = req.params;
+
+    const {
+      name,
+      type = "EARNING",
+      taxability = "TAXABLE",
+      isWageCodeComponent = false,
+      isPartOfWages = false,
+      isFBP = false,
+      calculationType = "FLAT",
+      value = 0,
+      prorationMethod = "CALENDAR_DAYS",
+    } = req.body;
+
+    // ✅ Basic validation
+    if (!name || String(name).trim() === "") {
+      return res.status(400).json({
+        error: "Component name is required",
+      });
+    }
+
+    const allowedTypes = ["EARNING", "DEDUCTION", "REIMBURSEMENT"];
+    const allowedTaxability = ["TAXABLE", "PARTIAL", "FULLY_EXEMPT"];
+    const allowedCalculationTypes = ["FLAT", "%_BASIC", "%_GROSS"];
+    const allowedProrationMethods = ["CALENDAR_DAYS", "FIXED_30", "WORKING_DAYS"];
+
+    if (!allowedTypes.includes(type)) {
+      return res.status(400).json({ error: "Invalid component type" });
+    }
+
+    if (!allowedTaxability.includes(taxability)) {
+      return res.status(400).json({ error: "Invalid taxability" });
+    }
+
+    if (!allowedCalculationTypes.includes(calculationType)) {
+      return res.status(400).json({ error: "Invalid calculation type" });
+    }
+
+    if (!allowedProrationMethods.includes(prorationMethod)) {
+      return res.status(400).json({ error: "Invalid proration method" });
+    }
+
+    // Check if it exists for the tenant
+    const existing = await prisma.salaryComponent.findFirst({
+      where: { id, tenantId }
+    });
+    if (!existing) {
+      return res.status(404).json({ error: "Salary component not found" });
+    }
+
+    const component = await prisma.salaryComponent.update({
+      where: { id },
+      data: {
+        name: String(name).trim(),
+        type,
+        taxability,
+        isTaxable: taxability !== "FULLY_EXEMPT",
+        isWageCodeComponent: Boolean(isWageCodeComponent),
+        isPartOfWages: Boolean(isPartOfWages),
+        isFBP: Boolean(isFBP),
+        calculationType,
+        value: Number(value || 0),
+        prorationMethod,
+      },
+    });
+
+    return res.json(component);
+  } catch (error: any) {
+    return res.status(500).json({
+      error: "Failed to update salary component",
+      details: error.message,
+    });
+  }
+};
+
 export const deleteSalaryComponent = async (req: Request, res: Response) => {
   try {
     const { tenantId } = req.user as any;

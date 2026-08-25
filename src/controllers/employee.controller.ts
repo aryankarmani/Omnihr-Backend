@@ -77,7 +77,7 @@ const getFrontendLoginUrl = (req: Request) => {
         return `${origin}/login`;
     }
 
-    return "http://localhost:5173/login";
+    return "http://localhost:3001/login";
 };
 
 const employeeInclude = {

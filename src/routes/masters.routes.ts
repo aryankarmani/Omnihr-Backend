@@ -33,6 +33,7 @@ router.delete('/designations/:id', MastersController.remove('designation'));
 // ✅ Salary Components
 router.get('/salary-components', MastersController.getSalaryComponents);
 router.post('/salary-components', MastersController.createSalaryComponent);
+router.put('/salary-components/:id', MastersController.updateSalaryComponent);
 router.delete('/salary-components/:id', MastersController.deleteSalaryComponent);
 
 // ✅ Compliance / Statutory Settings
