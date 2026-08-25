@@ -63,7 +63,6 @@ export const sendMail = async ({
       html,
       text,
     });
-    console.log(`✅ Email sent successfully to ${to}. MessageId: ${info.messageId}`);
     return info;
   } catch (error) {
     console.error(`❌ Failed to send email to ${to}:`, error);

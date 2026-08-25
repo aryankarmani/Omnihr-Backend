@@ -304,7 +304,7 @@ export const createEmployee = async (req: Request, res: Response) => {
         const uploadedFiles = req.files as Express.Multer.File[] | undefined;
 
 const profilePhotoFile = uploadedFiles?.find(
-    (file) => file.fieldname === "profilePhoto"
+    (file) => file.fieldname === "profilePicture" || file.fieldname === "profilePhoto"
 );
 
 const profilePhotoPath = profilePhotoFile
@@ -535,6 +535,8 @@ const profilePhotoPath = profilePhotoFile
             }
 
             return user;
+        }, {
+            timeout: 30000 // 30 seconds
         });
 
         const fullEmployee = await prisma.user.findFirst({
