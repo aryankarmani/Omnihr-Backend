@@ -308,9 +308,13 @@ export const updateAttendancePolicy = async (req: Request, res: Response) => {
 // ACCESS CONTROL
 export const getPermissions = async (req: Request, res: Response) => {
     try {
-        const permissions = await prisma.permission.findMany();
+        const permissions = await prisma.permission.findMany({
+            orderBy: [
+                { module: "asc" },
+                { name: "asc" }
+            ]
+        });
         res.json(permissions);
-    
     } catch (error) {
         console.error("Get permissions error:", error);
         res.status(500).json({ error: "Failed to fetch permissions" });
@@ -321,7 +325,6 @@ export const getRoles = async (req: Request, res: Response) => {
     try {
         const { tenantId } = req.user as any;
         const roles = await prisma.role.findMany({
-            
             where: {
                 tenantId,
                 NOT: {
@@ -331,7 +334,6 @@ export const getRoles = async (req: Request, res: Response) => {
             include: { permissions: true }
         });
         res.json(roles);
-  
     } catch (error) {
         console.error("Get roles error:", error);
         res.status(500).json({ error: "Failed to fetch roles" });
@@ -343,20 +345,49 @@ export const createRole = async (req: Request, res: Response) => {
         const { tenantId } = req.user as any;
         const { name, permissionIds = [], accessibleModules = "" } = req.body;
 
-        // ✅ CHANGED: Manager role should not be created from Masters
+        // ✅ Manager role should not be created from Masters
         if (String(name).trim().toUpperCase() === "MANAGER") {
             return res.status(400).json({
                 error: "MANAGER role is not allowed. Manager access is handled from Team Access Control.",
             });
         }
+
+        const normalizeModule = (m: any) => {
+            const s = String(m || "").trim().toUpperCase();
+            if (s === "EMPLOYEES" || s === "HR") return "EMPLOYEE";
+            if (s === "SETTINGS" || s === "ADMIN") return "MASTERS";
+            return s;
+        };
+
+        // Clean and normalize accessible modules
+        const moduleArray = Array.isArray(accessibleModules)
+            ? accessibleModules
+            : typeof accessibleModules === "string"
+                ? accessibleModules.split(",")
+                : [];
+        const cleanModules = Array.from(
+            new Set(moduleArray.map(normalizeModule).filter(Boolean))
+        );
+        const accessibleModulesStr = cleanModules.join(",");
+
+        // Validate permissions against enabled modules (only grant permissions for accessible modules)
+        let validPermissionIds: string[] = [];
+        if (Array.isArray(permissionIds) && permissionIds.length > 0) {
+            const requestedPermissions = await prisma.permission.findMany({
+                where: { id: { in: permissionIds } }
+            });
+            validPermissionIds = requestedPermissions
+                .filter(p => cleanModules.includes(p.module.toUpperCase()))
+                .map(p => p.id);
+        }
        
         const role = await prisma.role.create({
             data: {
-                name,
+                name: String(name).trim(),
                 tenantId,
-                accessibleModules: accessibleModules || "",
+                accessibleModules: accessibleModulesStr,
                 permissions: {
-                    connect: permissionIds.map((id: string) => ({ id }))
+                    connect: validPermissionIds.map((id: string) => ({ id }))
                 }
             },
             include: { permissions: true }
@@ -376,18 +407,43 @@ export const updateRole = async (req: Request, res: Response) => {
         const { id } = req.params;
         const { name, permissionIds = [], accessibleModules = "" } = req.body;
 
-        
+        const normalizeModule = (m: any) => {
+            const s = String(m || "").trim().toUpperCase();
+            if (s === "EMPLOYEES" || s === "HR") return "EMPLOYEE";
+            if (s === "SETTINGS" || s === "ADMIN") return "MASTERS";
+            return s;
+        };
 
-        // console.log("Update role body:", req.body);
+        // Clean and normalize accessible modules
+        const moduleArray = Array.isArray(accessibleModules)
+            ? accessibleModules
+            : typeof accessibleModules === "string"
+                ? accessibleModules.split(",")
+                : [];
+        const cleanModules = Array.from(
+            new Set(moduleArray.map(normalizeModule).filter(Boolean))
+        );
+        const accessibleModulesStr = cleanModules.join(",");
+
+        // Validate permissions against enabled modules (only grant permissions for accessible modules)
+        let validPermissionIds: string[] = [];
+        if (Array.isArray(permissionIds) && permissionIds.length > 0) {
+            const requestedPermissions = await prisma.permission.findMany({
+                where: { id: { in: permissionIds } }
+            });
+            validPermissionIds = requestedPermissions
+                .filter(p => cleanModules.includes(p.module.toUpperCase()))
+                .map(p => p.id);
+        }
 
         const role = await prisma.role.update({
             where: { id: Number(id) },
             data: {
-                name,
-                accessibleModules: accessibleModules || "",
+                name: String(name).trim(),
+                accessibleModules: accessibleModulesStr,
                 permissions: {
                     set: [],
-                    connect: permissionIds.map((pid: string) => ({ id: pid }))
+                    connect: validPermissionIds.map((pid: string) => ({ id: pid }))
                 }
             },
             include: { permissions: true }
