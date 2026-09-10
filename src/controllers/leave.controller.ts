@@ -8,63 +8,63 @@ import { createAuditLog } from "../utils/auditLog";
 const prisma = new PrismaClient();
 
 const sendLeaveRequestPushToApprovers = async ({
-  tenantId,
-  employeeUserId,
-  title,
-  body,
+    tenantId,
+    employeeUserId,
+    title,
+    body,
 }: {
-  tenantId: string;
-  employeeUserId: number;
-  title: string;
-  body: string;
+    tenantId: string;
+    employeeUserId: number;
+    title: string;
+    body: string;
 }) => {
-  try {
-    const employee = await prisma.user.findFirst({
-      where: {
-        id: employeeUserId,
-        tenantId,
-      },
-      select: {
-        managerId: true,
-      },
-    });
+    try {
+        const employee = await prisma.user.findFirst({
+            where: {
+                id: employeeUserId,
+                tenantId,
+            },
+            select: {
+                managerId: true,
+            },
+        });
 
-    // ✅ Find HR_ADMIN and SYSTEM_ADMIN users
-    const admins = await prisma.user.findMany({
-      where: {
-        tenantId,
-        isActive: true,
-        deletedAt: null,
-        role: {
-          name: {
-            in: ["HR_ADMIN", "SYSTEM_ADMIN"],
-          },
-        },
-      },
-      select: {
-        id: true,
-      },
-    });
+        // ✅ Find HR_ADMIN and SYSTEM_ADMIN users
+        const admins = await prisma.user.findMany({
+            where: {
+                tenantId,
+                isActive: true,
+                deletedAt: null,
+                role: {
+                    name: {
+                        in: ["HR_ADMIN", "SYSTEM_ADMIN"],
+                    },
+                },
+            },
+            select: {
+                id: true,
+            },
+        });
 
-    const approverIds = new Set<number>();
+        const approverIds = new Set<number>();
 
-    // ✅ Add admins
-    admins.forEach((admin) => approverIds.add(admin.id));
+        // ✅ Add admins
+        admins.forEach((admin) => approverIds.add(admin.id));
 
-    // ✅ Add direct manager if employee has manager
-    if (employee?.managerId) {
-      approverIds.add(employee.managerId);
+        // ✅ Add direct manager if employee has manager
+        if (employee?.managerId) {
+            approverIds.add(employee.managerId);
+        }
+
+        // ✅ Send push notification to all approvers
+        await Promise.all(
+            Array.from(approverIds).map((id) =>
+                sendPushNotificationToUser(id, title, body)
+            )
+        );
+    } catch (error) {
+        console.error("Leave approver push notification error:", error);
     }
-
-    // ✅ Send push notification to all approvers
-    await Promise.all(
-      Array.from(approverIds).map((id) =>
-        sendPushNotificationToUser(id, title, body)
-      )
-    );
-  } catch (error) {
-    console.error("Leave approver push notification error:", error);
-  }
 };
 
 // Get leave balances for the authenticated user
@@ -331,8 +331,8 @@ export const updateLeaveStatus = async (req: Request, res: Response) => {
         if (!tenantId) return res.status(401).json({ message: 'Unauthorized' });
 
         if (!["APPROVED", "REJECTED", "PENDING"].includes(status)) {
-      return res.status(400).json({ message: "Invalid leave status" });
-    }
+            return res.status(400).json({ message: "Invalid leave status" });
+        }
 
         const updatedLeave = await prisma.leave.update({
             where: { id: Number(id), tenantId },
@@ -348,24 +348,23 @@ export const updateLeaveStatus = async (req: Request, res: Response) => {
             },
         });
 
-         // ✅ Security check: make sure leave belongs to same tenant
-    if (updatedLeave.tenantId !== tenantId) {
-      return res.status(403).json({ message: "Forbidden" });
-    }
+        // ✅ Security check: make sure leave belongs to same tenant
+        if (updatedLeave.tenantId !== tenantId) {
+            return res.status(403).json({ message: "Forbidden" });
+        }
 
-    const title = "Leave Status Updated";
-    const message = `Your ${
-      updatedLeave.leaveType?.name || "leave"
-    } request has been ${status}.`;
+        const title = "Leave Status Updated";
+        const message = `Your ${updatedLeave.leaveType?.name || "leave"
+            } request has been ${status}.`;
 
-         // ✅ OLD: In-app notification for employee
-    await createNotification({
-      tenantId,
-      userId: updatedLeave.userId,
-      title,
-      message,
-      type: "leave",
-    });
+        // ✅ OLD: In-app notification for employee
+        await createNotification({
+            tenantId,
+            userId: updatedLeave.userId,
+            title,
+            message,
+            type: "leave",
+        });
 
         await sendPushNotificationToUser(updatedLeave.userId, title, message);
 

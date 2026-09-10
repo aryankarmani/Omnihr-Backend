@@ -345,7 +345,7 @@ export const sendOtp = async (req: Request, res: Response) => {
 
     await sendMail({
       to: email,
-      subject: "Your EnCalm HRMS Password Reset OTP",
+      subject: "Your OmniHR Password Reset OTP",
       html: otpEmail.html,
       text: otpEmail.text,
     });

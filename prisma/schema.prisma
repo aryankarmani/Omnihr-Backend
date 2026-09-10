@@ -77,6 +77,16 @@ model Tenant {
 
   employeeSalaryComponents EmployeeSalaryComponent[]
 
+  // SaaS Subscription & Billing Relations
+  contactEmail              String?
+  contactPhone              String?
+  contactPerson             String?
+  isActive                  Boolean                    @default(true)
+  status                    String                     @default("ACTIVE")
+  subscriptions             Subscription[]
+  payments                  Payment[]
+  subscriptionNotifications SubscriptionNotification[]
+
   // existing fields...
   notifications Notification[]
   customFields  CustomField[]
@@ -882,4 +892,97 @@ model EmployeeSalaryComponent {
   @@unique([profileId, componentId])
   @@index([tenantId])
   @@index([profileId])
+}
+
+// ==========================================
+// SUPER ADMIN SAAS & SUBSCRIPTION MODELS
+// ==========================================
+
+model SuperAdmin {
+  id                  String   @id @default(uuid())
+  email               String   @unique
+  password            String
+  name                String
+  role                String   @default("SUPER_ADMIN")
+  isActive            Boolean  @default(true)
+  forcePasswordChange Boolean  @default(false)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model SubscriptionPlan {
+  id            String         @id @default(uuid())
+  name          String         @unique
+  description   String?        @db.Text
+  monthlyPrice  Float
+  yearlyPrice   Float
+  currency      String         @default("INR")
+  maxEmployees  Int            @default(25) // 0 or -1 means unlimited
+  features      String         @db.Text // JSON array of feature keys
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  subscriptions Subscription[]
+}
+
+model Subscription {
+  id            String                     @id @default(uuid())
+  tenantId      String
+  planId        String
+  billingCycle  String                     @default("MONTHLY") // MONTHLY | YEARLY
+  status        String                     @default("ACTIVE") // ACTIVE | EXPIRING_SOON | EXPIRED | CANCELLED | SUSPENDED
+  startDate     DateTime
+  endDate       DateTime
+  autoRenew     Boolean                    @default(false)
+  createdAt     DateTime                   @default(now())
+  updatedAt     DateTime                   @updatedAt
+  tenant        Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan          SubscriptionPlan           @relation(fields: [planId], references: [id])
+  payments      Payment[]
+  notifications SubscriptionNotification[]
+
+  @@index([tenantId])
+  @@index([planId])
+  @@index([status])
+}
+
+model Payment {
+  id             String        @id @default(uuid())
+  tenantId       String
+  subscriptionId String?
+  amount         Float
+  currency       String        @default("INR")
+  status         String        @default("PAID") // PENDING | PAID | FAILED | REFUNDED | CANCELLED
+  paymentMethod  String        @default("ONLINE")
+  gateway        String        @default("MANUAL") // MANUAL | RAZORPAY
+  transactionId  String?       @unique
+  notes          String?       @db.Text
+  paidAt         DateTime?     @default(now())
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  tenant         Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id])
+
+  @@index([tenantId])
+  @@index([subscriptionId])
+  @@index([status])
+}
+
+model SubscriptionNotification {
+  id               String       @id @default(uuid())
+  tenantId         String
+  subscriptionId   String
+  notificationType String // EXPIRY_30_DAYS, EXPIRY_15_DAYS, EXPIRY_7_DAYS, EXPIRY_3_DAYS, EXPIRY_1_DAY, SUBSCRIPTION_EXPIRED, MANUAL_REMINDER
+  scheduledDate    DateTime
+  sentAt           DateTime?
+  status           String       @default("PENDING") // PENDING | SENT | FAILED
+  channel          String       @default("IN_APP") // IN_APP | EMAIL
+  message          String?      @db.Text
+  createdAt        DateTime     @default(now())
+  tenant           Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscription     Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([subscriptionId])
+  @@index([status])
 }

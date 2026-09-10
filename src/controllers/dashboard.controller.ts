@@ -189,7 +189,7 @@ export const getLiveAttendance = async (req: Request, res: Response) => {
             },
         });
 
-        const timeSlots = ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00', '22:00', '23:00'];
+        const timeSlots = ['10:00', '11:00', '13:00', '15:00', '17:00', '19:00', '21:00', '23:00'];
 
         const data = timeSlots.map((slot) => {
             const hour = Number(slot.split(':')[0]);

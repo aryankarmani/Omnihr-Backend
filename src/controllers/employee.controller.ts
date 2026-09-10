@@ -309,13 +309,13 @@ export const createEmployee = async (req: Request, res: Response) => {
         const data = typeof req.body.data === 'string' ? JSON.parse(req.body.data) : req.body;
         const uploadedFiles = req.files as Express.Multer.File[] | undefined;
 
-const profilePhotoFile = uploadedFiles?.find(
-    (file) => file.fieldname === "profilePicture" || file.fieldname === "profilePhoto"
-);
+        const profilePhotoFile = uploadedFiles?.find(
+            (file) => file.fieldname === "profilePhoto" || file.fieldname === "profilePicture"
+        );
 
-const profilePhotoPath = profilePhotoFile
-    ? `/uploads/${profilePhotoFile.filename}`
-    : null;
+        const profilePhotoPath = profilePhotoFile
+            ? `/uploads/${profilePhotoFile.filename}`
+            : null;
 
         const {
             name, email, password, phone, role, roleId,
@@ -497,7 +497,7 @@ const profilePhotoPath = profilePhotoFile
                 const customFieldsMap: Record<string, any> = {};
                 cfMasters.forEach((cf) => {
                     const value = customFieldValues[cf.id] !== undefined ? String(customFieldValues[cf.id]) : null;
-                    
+
                     // Check if there is an uploaded file for this custom field
                     const fileArr = files[`custom-file-${cf.id}`];
                     const file = fileArr && fileArr[0];
@@ -576,7 +576,7 @@ const profilePhotoPath = profilePhotoFile
 
             await sendMail({
                 to: email,
-                subject: "Welcome to EnCalm HRMS - Your Account is Ready",
+                subject: "Welcome to OmniHR - Your Account is Ready",
                 html: emailContent.html,
                 text: emailContent.text,
             });
@@ -813,7 +813,7 @@ export const updateEmployee = async (req: Request, res: Response) => {
                 designationId: finalDesignationId,
                 locationId: locationId || null,
                 shiftId: shiftId || null,
-                
+
                 isActive: true,
                 deletedAt: null,
 
@@ -1160,21 +1160,21 @@ export const deleteEmployee = async (req: Request, res: Response) => {
         });
 
         await createAuditLog({
-    tenantId,
-    module: "Employee",
-    action: "Deleted",
+            tenantId,
+            module: "Employee",
+            action: "Deleted",
 
-    // ✅ FIXED: variable name is employee, not existingEmployee
-    description: `${employee.name} was deleted/inactivated.`,
+            // ✅ FIXED: variable name is employee, not existingEmployee
+            description: `${employee.name} was deleted/inactivated.`,
 
-    performedById: (req as any).user?.id,
-    performedBy: (req as any).user?.name || (req as any).user?.email || "Admin",
-    performedByRole: (req as any).user?.role,
+            performedById: (req as any).user?.id,
+            performedBy: (req as any).user?.name || (req as any).user?.email || "Admin",
+            performedByRole: (req as any).user?.role,
 
-    targetUserId: userId,
-    targetUser: employee.name,
-    targetUserRole: employee.role?.name || "EMPLOYEE",
-});
+            targetUserId: userId,
+            targetUser: employee.name,
+            targetUserRole: employee.role?.name || "EMPLOYEE",
+        });
 
         res.json({ message: 'Employee and all associated records deleted successfully' });
     } catch (error) {
