@@ -8,6 +8,7 @@ import { sendMail, employeeWelcomeTemplate } from "../utils/mail";
 import { createAuditLog } from "../utils/auditLog";
 import fs from 'fs';
 import path from 'path';
+import { calculateProfileCompletion } from '../utils/profileCompletion';
 
 
 const prisma = new PrismaClient();
@@ -287,7 +288,12 @@ export const getAllEmployees = async (req: Request, res: Response) => {
         });
 
 
-        res.json(employees);
+        const employeesWithCompletion = employees.map(emp => ({
+            ...emp,
+            profileCompletion: calculateProfileCompletion(emp)
+        }));
+
+        res.json(employeesWithCompletion);
     } catch (error) {
         console.error('Error fetching employees:', error);
         res.status(500).json({ message: 'Server error' });
@@ -656,6 +662,7 @@ export const getEmployee = async (req: Request, res: Response) => {
 
         res.json({
             ...employee,
+            profileCompletion: calculateProfileCompletion(employee),
 
             companySetting: {
                 authorizedSignName:
@@ -1269,7 +1276,10 @@ export const getCurrentEmployee = async (req: Request, res: Response) => {
             return res.status(404).json({ message: 'Employee profile not found' });
         }
 
-        res.json(employee);
+        res.json({
+            ...employee,
+            profileCompletion: calculateProfileCompletion(employee)
+        });
     } catch (error) {
         console.error('Error fetching current employee:', error);
         res.status(500).json({ message: 'Server error' });
