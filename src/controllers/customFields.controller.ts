@@ -111,7 +111,7 @@ export const getEmployeeCustomFields = async (req: Request, res: Response) => {
         });
 
         if (!profile) {
-            return res.status(404).json({ error: "Employee profile not found" });
+            return res.json([]);
         }
 
         const fields = await prisma.customField.findMany({
