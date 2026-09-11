@@ -300,7 +300,7 @@ export const getDashboard = async (
       if (prevToday > lastDayOfPrevMonth) {
         prevToday.setDate(lastDayOfPrevMonth.getDate());
       }
-       prevFirstDay.setHours(0, 0, 0, 0);
+      prevFirstDay.setHours(0, 0, 0, 0);
       prevToday.setHours(23, 59, 59, 999);
     }
 
@@ -391,7 +391,7 @@ export const getDashboard = async (
     });
 
     return res.json({
-        totalEmployees: employees.length,
+      totalEmployees: employees.length,
       totalPayroll: periodPayroll,
       avgAttendance,
       pendingLeaves,
@@ -460,7 +460,7 @@ export const getAttendance = async (
       },
     });
 
-     // ✅ CHANGED: Count users instead of employeeProfile
+    // ✅ CHANGED: Count users instead of employeeProfile
     const activeEmployeesCount = await prisma.user.count({
       where: activeUserWhere(tenantId),
     });
@@ -623,7 +623,7 @@ export const getPayroll = async (
     const departmentMap: Record<string, number> = {};
 
     employees.forEach((user) => {
-        const profile = user.employeeProfile;
+      const profile = user.employeeProfile;
 
       const department =
         profile?.departmentRef?.name || profile?.department || "Unknown";
@@ -632,7 +632,7 @@ export const getPayroll = async (
         departmentMap[department] = 0;
       }
 
-      departmentMap[department] +=  calculateSalary(profile?.salary);
+      departmentMap[department] += calculateSalary(profile?.salary);
     });
 
     // Scale values based on period
@@ -682,7 +682,7 @@ export const exportMonthlyAttendance = async (
 
     if (!tenantId) return;
 
-    const {  startDate, endDate } = getReportRange(req.query.period);
+    const { startDate, endDate } = getReportRange(req.query.period);
 
 
     const records = await prisma.attendanceRecord.findMany({
@@ -913,7 +913,7 @@ export const exportLeaveBalance = async (
 
     sheet.columns = [
 
-         { header: "Employee ID", key: "employeeId", width: 15 },
+      { header: "Employee ID", key: "employeeId", width: 15 },
 
       {
         header: "Name",
@@ -970,10 +970,12 @@ export const exportLeaveBalance = async (
         leaveType: leave.leaveType?.name || "",
         reason: leave.reason,
         status: leave.status,
-        startDate: leave.startDate.toISOString().split("T")[0],
-        endDate: leave.endDate.toISOString().split("T")[0],
-        fromTime: leave.fromTime || "—",
-        toTime: leave.toTime || "—",
+
+        start: leave.startDate ? new Date(leave.startDate).toISOString().split("T")[0] : "",
+        end: leave.endDate ? new Date(leave.endDate).toISOString().split("T")[0] : "",
+        startDate: leave.startDate ? new Date(leave.startDate).toISOString().split("T")[0] : "",
+        endDate: leave.endDate ? new Date(leave.endDate).toISOString().split("T")[0] : "",
+
       });
     });
 
@@ -1116,23 +1118,23 @@ export const getEmployeePayslip = async (req: Request, res: Response) => {
     const profile = employee.employeeProfile;
 
     // ✅ ADDED: Block payslip before joining month
-if (profile.joiningDate) {
-  const join = new Date(profile.joiningDate);
-  const [year, month] = salaryMonth.split("-").map(Number);
+    if (profile.joiningDate) {
+      const join = new Date(profile.joiningDate);
+      const [year, month] = salaryMonth.split("-").map(Number);
 
-  // Selected payslip month end date
-  const selectedMonthEnd = new Date(year, month, 0);
+      // Selected payslip month end date
+      const selectedMonthEnd = new Date(year, month, 0);
 
-  // Example:
-  // Joining date = 13 May 2026
-  // April 2026 monthEnd = 30 Apr 2026, so block
-  // May 2026 monthEnd = 31 May 2026, so allow
-  if (selectedMonthEnd < join) {
-    return res.status(400).json({
-      message: `Payslip cannot be generated before joining month. Employee joined on ${join.toLocaleDateString("en-IN")}.`,
-    });
-  }
-}
+      // Example:
+      // Joining date = 13 May 2026
+      // April 2026 monthEnd = 30 Apr 2026, so block
+      // May 2026 monthEnd = 31 May 2026, so allow
+      if (selectedMonthEnd < join) {
+        return res.status(400).json({
+          message: `Payslip cannot be generated before joining month. Employee joined on ${join.toLocaleDateString("en-IN")}.`,
+        });
+      }
+    }
 
     // ✅ Find latest revision before or same selected month
     const latestRevisionBeforeOrSame = profile.salaryHistory

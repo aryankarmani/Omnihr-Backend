@@ -543,10 +543,16 @@ export const getPendingRegularizations = async (req: AuthRequest, res: Response)
         const tenantId = req.user.tenantId;
         const userId = req.user.id;
 
+        const statusQuery = req.query.status as string;
         const whereClause: any = {
             tenantId,
-            status: "PENDING",
         };
+
+        if (statusQuery && statusQuery !== 'All') {
+            whereClause.status = statusQuery;
+        } else if (!statusQuery) {
+            whereClause.status = "PENDING";
+        }
 
         // ✅ CHANGED: HR admin sees all, manager sees only own team
         if (!isAdmin(req.user)) {

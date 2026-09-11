@@ -124,28 +124,28 @@ export const getStats = async (req: Request, res: Response) => {
         //         : 0;
 
         // UPDATED: Dashboard Avg Attendance = Today only
-// Formula: today's present or late employees / total active employees * 100
+        // Formula: today's present or late employees / total active employees * 100
 
-const todayStr = getLocalDateString(today);
+        const todayStr = getLocalDateString(today);
 
-const todayAttendanceCount = await prisma.attendanceRecord.count({
-    where: {
-        tenantId,
-        date: todayStr,
-        status: {
-            in: ['PRESENT', 'Present', 'present', 'LATE', 'Late', 'late'],
-        },
-        user: {
-            isActive: true,
-            deletedAt: null,
-        },
-    },
-});
+        const todayAttendanceCount = await prisma.attendanceRecord.count({
+            where: {
+                tenantId,
+                date: todayStr,
+                status: {
+                    in: ['PRESENT', 'Present', 'present', 'LATE', 'Late', 'late'],
+                },
+                user: {
+                    isActive: true,
+                    deletedAt: null,
+                },
+            },
+        });
 
-const avgAttendance =
-    headcount > 0
-        ? Math.round((todayAttendanceCount / headcount) * 100)
-        : 0;
+        const avgAttendance =
+            headcount > 0
+                ? Math.round((todayAttendanceCount / headcount) * 100)
+                : 0;
 
 
 
