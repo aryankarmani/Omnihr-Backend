@@ -967,8 +967,10 @@ export const exportLeaveBalance = async (
 
         status: leave.status,
 
-        startDate: leave.startDate.toISOString().split("T")[0],
-        endDate: leave.endDate.toISOString().split("T")[0],
+        start: leave.startDate ? new Date(leave.startDate).toISOString().split("T")[0] : "",
+        end: leave.endDate ? new Date(leave.endDate).toISOString().split("T")[0] : "",
+        startDate: leave.startDate ? new Date(leave.startDate).toISOString().split("T")[0] : "",
+        endDate: leave.endDate ? new Date(leave.endDate).toISOString().split("T")[0] : "",
 
       });
 
