@@ -471,3 +471,57 @@ export const resetPassword = async (req: Request, res: Response) => {
     });
   }
 };
+
+// ✅ GET /auth/me: Returns current authenticated user with latest role & permissions
+export const getMe = async (req: any, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const tenantId = req.user?.tenantId;
+
+    if (!userId || !tenantId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const user = await prisma.user.findFirst({
+      where: {
+        id: userId,
+        tenantId,
+        isActive: true,
+        deletedAt: null,
+      },
+      include: {
+        role: {
+          include: {
+            permissions: true,
+          },
+        },
+        tenant: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    return res.json({
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: (user.role?.name || "EMPLOYEE").toUpperCase(),
+        tenantId: user.tenantId,
+        tenantName: user.tenant?.name,
+        accessibleModules: user.role?.accessibleModules
+          ? user.role.accessibleModules.split(",")
+          : [],
+        permissions: user.role?.permissions?.map((p) => p.code) || [],
+      },
+    });
+  } catch (error: any) {
+    console.error("getMe error:", error);
+    return res.status(500).json({
+      message: "Server error",
+      details: error.message,
+    });
+  }
+};

@@ -209,6 +209,16 @@ export const applyLeave = async (req: Request, res: Response) => {
             return res.status(400).json({ message: 'All fields are required' });
         }
 
+        // Validate timing if Half Day or Short Leave is requested
+        if (['HD', 'SHL'].includes(leaveTypeCode)) {
+            if (!fromTime || !toTime) {
+                return res.status(400).json({ message: 'From Time and To Time are required for Half Day / Short Leave' });
+            }
+            if (fromTime >= toTime) {
+                return res.status(400).json({ message: 'To Time must be later than From Time' });
+            }
+        }
+
         // ✅ Find the leave type for current tenant
         let leaveType = await prisma.leaveType.findFirst({
             where: {
@@ -274,6 +284,17 @@ export const applyLeave = async (req: Request, res: Response) => {
                 toTime: toTime || null,
                 reason,
                 status: 'PENDING'
+            },
+            include: {
+                leaveType: true,
+                user: {
+                    select: {
+                        id: true,
+                        name: true,
+                        email: true,
+                        employeeProfile: true
+                    }
+                }
             }
         });
         const employee = await prisma.user.findFirst({
@@ -281,9 +302,9 @@ export const applyLeave = async (req: Request, res: Response) => {
             select: { name: true },
         });
 
+        const timeInfo = (fromTime && toTime) ? ` (${fromTime} - ${toTime})` : '';
         const title = "New Leave Request";
-        const message = `${employee?.name || "Employee"} requested ${leaveType.name
-            } from ${startDate} to ${endDate}.`;
+        const message = `${employee?.name || "Employee"} requested ${leaveType.name}${timeInfo} from ${startDate} to ${endDate}.`;
 
         // ✅ OLD: In-app notification for admins
         await notifyAdmins({
@@ -304,7 +325,7 @@ export const applyLeave = async (req: Request, res: Response) => {
             tenantId,
             module: "Leave",
             action: "Requested",
-            description: `${employee?.name || "Employee"} requested ${leaveType.name} from ${startDate} to ${endDate}.`,
+            description: `${employee?.name || "Employee"} requested ${leaveType.name}${timeInfo} from ${startDate} to ${endDate}.`,
             performedById: userId,
             performedBy: employee?.name || "Employee",
             performedByRole: (req as any).user?.role,
@@ -312,7 +333,6 @@ export const applyLeave = async (req: Request, res: Response) => {
             targetUser: employee?.name || "Employee",
             targetUserRole: "EMPLOYEE",
         });
-
 
         res.status(201).json(newLeave);
     } catch (error) {

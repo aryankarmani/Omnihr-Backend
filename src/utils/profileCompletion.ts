@@ -79,7 +79,7 @@ export function calculateProfileCompletion(employee: any): ProfileCompletionResu
             check: () => {
                 const pan = statutory.pan?.trim();
                 const aadhaar = statutory.aadhaar?.trim();
-                return !!(pan && aadhaar);
+                return !!(pan && pan !== 'Not Provided' && aadhaar && aadhaar !== 'Not Provided');
             }
         },
         {

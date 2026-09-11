@@ -939,40 +939,42 @@ export const exportLeaveBalance = async (
 
       {
         header: "Start Date",
-        key: "start",
-        width: 20
+        key: "startDate",
+        width: 15
       },
 
       {
         header: "End Date",
-        key: "end",
-        width: 20
+        key: "endDate",
+        width: 15
+      },
+
+      {
+        header: "From Time",
+        key: "fromTime",
+        width: 15
+      },
+
+      {
+        header: "To Time",
+        key: "toTime",
+        width: 15
       }
     ];
 
-
     leaves.forEach((leave) => {
-
       sheet.addRow({
-
         employeeId: leave.userId,
-
         name: leave.user?.name || "",
-
         email: leave.user?.email || "",
-
         leaveType: leave.leaveType?.name || "",
-
         reason: leave.reason,
-
         status: leave.status,
-
         startDate: leave.startDate.toISOString().split("T")[0],
         endDate: leave.endDate.toISOString().split("T")[0],
-
+        fromTime: leave.fromTime || "—",
+        toTime: leave.toTime || "—",
       });
-
-
     });
 
     res.setHeader(

@@ -475,6 +475,30 @@ export const createEmployee = async (req: Request, res: Response) => {
                 }
             });
 
+            // 5. Create Employee Salary Components if provided
+            const incomingSalaryComponents = data.selectedSalaryComponents || data.salaryComponents;
+            if (Array.isArray(incomingSalaryComponents) && incomingSalaryComponents.length > 0) {
+                const componentInserts = incomingSalaryComponents
+                    .map((comp: any) => {
+                        const componentId = comp.componentId || comp.id;
+                        if (!componentId) return null;
+                        return {
+                            tenantId,
+                            profileId: profile.id,
+                            componentId: String(componentId),
+                            amount: comp.amount !== undefined && comp.amount !== null ? Number(comp.amount) : null,
+                        };
+                    })
+                    .filter(Boolean);
+
+                if (componentInserts.length > 0) {
+                    await tx.employeeSalaryComponent.createMany({
+                        data: componentInserts as any[],
+                        skipDuplicates: true
+                    });
+                }
+            }
+
 
             // Parse flat req.files array into a fieldname mapping
             const filesArray = req.files as Express.Multer.File[] | undefined;
@@ -908,6 +932,36 @@ export const updateEmployee = async (req: Request, res: Response) => {
             },
         });
 
+        // ✅ Sync Employee Salary Components if provided
+        const incomingSalaryComponents = req.body.selectedSalaryComponents || req.body.salaryComponents;
+        if (Array.isArray(incomingSalaryComponents)) {
+            await prisma.employeeSalaryComponent.deleteMany({
+                where: { profileId: updatedProfile.id, tenantId },
+            });
+
+            if (incomingSalaryComponents.length > 0) {
+                const componentInserts = incomingSalaryComponents
+                    .map((comp: any) => {
+                        const componentId = comp.componentId || comp.id;
+                        if (!componentId) return null;
+                        return {
+                            tenantId,
+                            profileId: updatedProfile.id,
+                            componentId: String(componentId),
+                            amount: comp.amount !== undefined && comp.amount !== null ? Number(comp.amount) : null,
+                        };
+                    })
+                    .filter(Boolean);
+
+                if (componentInserts.length > 0) {
+                    await prisma.employeeSalaryComponent.createMany({
+                        data: componentInserts as any[],
+                        skipDuplicates: true,
+                    });
+                }
+            }
+        }
+
         // ✅ Store salary month-wise only when salary changed
         if (
             salaryData &&
@@ -981,7 +1035,12 @@ export const updateEmployee = async (req: Request, res: Response) => {
             targetUserRole: role || "EMPLOYEE",
         });
 
-        return res.json(updatedProfile);
+        const fullUpdatedEmployee = await prisma.user.findFirst({
+            where: { id: userId, tenantId },
+            include: employeeInclude,
+        });
+
+        return res.json(fullUpdatedEmployee || updatedProfile);
     } catch (error: any) {
         console.error("Update employee error:", error);
         return res.status(500).json({

@@ -242,6 +242,8 @@ export const getPendingApprovals = async (req: Request, res: Response) => {
             userName: leave.user.name,
             type: leave.leaveType.name,
             duration: Math.ceil((new Date(leave.endDate).getTime() - new Date(leave.startDate).getTime()) / (1000 * 3600 * 24)) + 1,
+            fromTime: leave.fromTime || null,
+            toTime: leave.toTime || null,
             avatar: leave.user.employeeProfile?.avatar || null
         }));
 
