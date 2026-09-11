@@ -1,12 +1,12 @@
 import { Router } from 'express';
-import { 
-  getEmployee, 
-  updateEmployee, 
-  addDocument, 
-  deleteDocument, 
-  getAllEmployees, 
-  createEmployee, 
-  getCurrentEmployee, 
+import {
+  getEmployee,
+  updateEmployee,
+  addDocument,
+  deleteDocument,
+  getAllEmployees,
+  createEmployee,
+  getCurrentEmployee,
   deleteEmployee,
   updateProfilePicture,
   deleteProfilePicture

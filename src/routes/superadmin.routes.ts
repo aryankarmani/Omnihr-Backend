@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { authenticateSuperAdmin } from "../middleware/superadmin.auth";
 import {
+  registerSuperAdmin,
   superAdminLogin,
   getSuperAdminProfile,
   changeSuperAdminPassword,
@@ -36,6 +37,7 @@ const router = Router();
 // ==========================================
 // SUPER ADMIN AUTH
 // ==========================================
+router.post("/auth/register", registerSuperAdmin);
 router.post("/auth/login", superAdminLogin);
 router.get("/auth/profile", authenticateSuperAdmin, getSuperAdminProfile);
 router.post("/auth/change-password", authenticateSuperAdmin, changeSuperAdminPassword);
