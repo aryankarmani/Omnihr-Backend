@@ -169,46 +169,93 @@ export const login = async (req: Request, res: Response) => {
 
 
 
-    if (!user || !user.password) {
-      return res.status(401).json({
-        message: "Email not found",
+    if (user) {
+      if (!user.password) {
+        return res.status(401).json({
+          message: "Invalid credentials",
+        });
+      }
+
+      const isPasswordValid = await bcrypt.compare(password, user.password);
+      if (!isPasswordValid) {
+        return res.status(401).json({
+          message: "Incorrect password",
+        });
+      }
+
+      const token = createAccessToken(user);
+      const refreshToken = await createRefreshToken(user);
+
+      return res.json({
+        message: "Login successful",
+        token,
+        refreshToken,
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: (user.role?.name || "EMPLOYEE").toUpperCase(),
+          tenantId: user.tenantId,
+          tenantName: user.tenant?.name,
+          accessibleModules: user.role?.accessibleModules
+            ? user.role.accessibleModules.split(",")
+            : [],
+        },
       });
     }
 
-   const isPasswordValid =
-   await bcrypt.compare(password, user.password);
-    
-
-    if (!isPasswordValid) {
-      return res.status(401).json({
-        message: "Incorrect password",
-      });
-    }
-
-   
-
-    
-    const token = createAccessToken(user);
-    const refreshToken = await createRefreshToken(user);
-
-    return res.json({
-      message: "Login successful",
-      token,
-      refreshToken,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: (user.role?.name || "EMPLOYEE").toUpperCase(),
-        tenantId: user.tenantId,
-        tenantName: user.tenant?.name,
-        accessibleModules: user.role?.accessibleModules
-          ? user.role.accessibleModules.split(",")
-          : [],
+    // Check if Super Admin
+    const superAdmin = await prisma.superAdmin.findUnique({
+      where: {
+        email: email.toLowerCase().trim(),
       },
     });
+
+    if (superAdmin) {
+      if (!superAdmin.isActive) {
+        return res.status(403).json({
+          message: "This Super Admin account has been deactivated.",
+        });
+      }
+
+      const isPasswordValid = await bcrypt.compare(password, superAdmin.password);
+      if (!isPasswordValid) {
+        return res.status(401).json({
+          message: "Incorrect password",
+        });
+      }
+
+      const token = jwt.sign(
+        {
+          id: superAdmin.id,
+          email: superAdmin.email,
+          name: superAdmin.name,
+          role: "SUPER_ADMIN",
+          type: "SUPER_ADMIN",
+        },
+        process.env.JWT_SECRET || "secret",
+        { expiresIn: "7d" }
+      );
+
+      return res.json({
+        message: "Super Admin authenticated successfully",
+        token,
+        superAdminToken: token,
+        user: {
+          id: superAdmin.id,
+          name: superAdmin.name,
+          email: superAdmin.email,
+          role: "SUPER_ADMIN",
+          forcePasswordChange: superAdmin.forcePasswordChange,
+        },
+      });
+    }
+
+    return res.status(401).json({
+      message: "Email not found",
+    });
   } catch (error: any) {
-    console.error( error);
+    console.error("Login error:", error);
     return res.status(500).json({
       message: "Server error",
       details: error.message,
