@@ -109,3 +109,23 @@ export const updatePlan = async (req: Request, res: Response) => {
     return res.status(500).json({ message: "Failed to update plan." });
   }
 };
+
+export const deletePlan = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    // Check for any subscriptions linked to this plan
+    const subCount = await prisma.subscription.count({ where: { planId: id } });
+    if (subCount > 0) {
+      return res.status(400).json({
+        message: `Cannot delete: ${subCount} subscription(s) are linked to this plan. Deactivate it instead.`,
+      });
+    }
+
+    await prisma.subscriptionPlan.delete({ where: { id } });
+    return res.json({ message: "Plan deleted successfully." });
+  } catch (error: any) {
+    console.error("Delete plan error:", error);
+    return res.status(500).json({ message: "Failed to delete plan." });
+  }
+};
