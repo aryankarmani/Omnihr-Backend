@@ -183,6 +183,29 @@ export const login = async (req: Request, res: Response) => {
         });
       }
 
+      // Check tenant status and subscription
+      if (user.tenant) {
+        if (!user.tenant.isActive) {
+          return res.status(403).json({
+            code: "COMPANY_DEACTIVATED",
+            message: "Your company account has been deactivated. Please contact platform administrator.",
+          });
+        }
+
+        const latestSub = await prisma.subscription.findFirst({
+          where: { tenantId: user.tenantId },
+          orderBy: { createdAt: "desc" },
+          select: { status: true },
+        });
+
+        if (latestSub && latestSub.status === "SUSPENDED") {
+          return res.status(403).json({
+            code: "SUBSCRIPTION_SUSPENDED",
+            message: "Your company subscription is currently suspended by the platform administrator. Please contact support to reactivate.",
+          });
+        }
+      }
+
       const token = createAccessToken(user);
       const refreshToken = await createRefreshToken(user);
 

@@ -15,6 +15,7 @@ import {
   getAllPlans,
   createPlan,
   updatePlan,
+  deletePlan,
 } from "../controllers/superadmin.plan.controller";
 import {
   getAllSubscriptions,
@@ -58,6 +59,7 @@ router.put("/companies/:id/status", authenticateSuperAdmin, updateCompanyStatus)
 router.get("/plans", authenticateSuperAdmin, getAllPlans);
 router.post("/plans", authenticateSuperAdmin, createPlan);
 router.put("/plans/:id", authenticateSuperAdmin, updatePlan);
+router.delete("/plans/:id", authenticateSuperAdmin, deletePlan);
 
 // ==========================================
 // SUBSCRIPTIONS
