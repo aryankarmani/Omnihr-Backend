@@ -26,6 +26,7 @@ import customFieldsRoutes from "./routes/customFields.routes";
 import auditLogRoutes from "./routes/auditLog.routes";
 import payrollRoutes from "./routes/payroll.routes";
 import superadminRoutes from "./routes/superadmin.routes";
+import publicRoutes from "./routes/public.routes";
 import { initSubscriptionCron } from "./services/subscriptionNotification.service";
 
 // Initialize SaaS subscription expiry background checker
@@ -82,5 +83,6 @@ app.use("/api/payroll", payrollRoutes);
 app.use("/api/push-notification", pushNotificationRoutes);
 app.use("/api/custom-fields", customFieldsRoutes);
 app.use("/api/superadmin", superadminRoutes);
+app.use("/api/public", publicRoutes);
 
 export { app, prisma };
