@@ -1251,13 +1251,27 @@ export const deleteDocument = async (req: Request, res: Response) => {
             return res.status(401).json({ message: "Unauthorized" });
         }
 
-        // UPDATED: tenant-safe document lookup
+        const parsedDocId = Number(docId);
+        if (!parsedDocId || Number.isNaN(parsedDocId)) {
+            return res.status(400).json({ message: "Invalid document ID" });
+        }
+
+        const targetUserId = id === 'me' ? (req as any).user?.id : Number(id);
+
+        // Tenant-safe document lookup by document ID and matching employee user/profile
         const document = await prisma.document.findFirst({
             where: {
-                id: Number(docId),
+                id: parsedDocId,
                 profile: {
-                    userId: Number(id),
                     tenantId,
+                    ...(targetUserId && !Number.isNaN(targetUserId)
+                        ? {
+                            OR: [
+                                { userId: targetUserId },
+                                { id: targetUserId }
+                            ]
+                        }
+                        : {}),
                 },
             },
         });
@@ -1268,8 +1282,21 @@ export const deleteDocument = async (req: Request, res: Response) => {
             });
         }
 
+        // Delete physical file from disk if present
+        if (document.url) {
+            const cleanName = document.url.replace(/^(\/)?uploads\//, '');
+            const filePath = path.join(process.cwd(), 'uploads', cleanName);
+            if (fs.existsSync(filePath)) {
+                try {
+                    fs.unlinkSync(filePath);
+                } catch (err) {
+                    console.error("File unlink error:", err);
+                }
+            }
+        }
+
         await prisma.document.delete({
-            where: { id: Number(docId) },
+            where: { id: parsedDocId },
         });
 
         return res.json({ message: "Document deleted successfully" });
