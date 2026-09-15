@@ -49,6 +49,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   next();
 });
 
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 app.use('/uploads', express.static(path.join(process.cwd(), "uploads")));
 
 app.set('etag', false);
