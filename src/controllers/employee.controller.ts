@@ -697,7 +697,7 @@ export const getEmployee = async (req: Request, res: Response) => {
 
                 authorizedSignature:
                     companySetting?.authorizedSignImage
-                        ? `/uploads/signatures/${companySetting.authorizedSignImage}`
+                        ? `/uploads/${companySetting.authorizedSignImage}`
                         : null,
             }
         });

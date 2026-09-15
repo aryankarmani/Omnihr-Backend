@@ -8,8 +8,11 @@ const prisma = new PrismaClient();
 
 const getSignatureUrl = (filename?: string | null) => {
   if (!filename) return null;
-   return `/uploads/${filename}`;
-
+  const filePath = path.join(process.cwd(), "uploads", filename);
+  if (!fs.existsSync(filePath)) {
+    return null;
+  }
+  return `/uploads/${filename}`;
 };
 
 
