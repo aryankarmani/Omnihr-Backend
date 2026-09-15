@@ -25,6 +25,7 @@
     "@types/dotenv": "^6.1.1",
     "@types/express": "^5.0.0",
     "bcryptjs": "^3.0.3",
+    "cloudinary": "^2.11.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "exceljs": "^3.4.0",
