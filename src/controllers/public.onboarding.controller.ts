@@ -3,6 +3,7 @@ import { PrismaClient } from "@prisma/client";
 import Razorpay from "razorpay";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
+import { sendMail, companyOnboardingTemplate } from "../utils/mail";
 
 const prisma = new PrismaClient();
 
@@ -45,10 +46,14 @@ export const createOrder = async (req: Request, res: Response) => {
     }
 
     // Determine amount based on billing cycle (Razorpay expects amount in paise)
-    const amount =
-      billingCycle === "YEARLY"
-        ? Math.round(plan.yearlyPrice * 100)
-        : Math.round(plan.monthlyPrice * 100);
+    const cycle = (billingCycle || "MONTHLY").toUpperCase();
+    let price = plan.monthlyPrice;
+    if (cycle === "YEARLY") {
+      price = plan.yearlyPrice;
+    } else if (cycle === "QUARTERLY") {
+      price = plan.name === "Starter" ? 12000 : plan.name === "Growth" ? 15000 : plan.monthlyPrice * 3;
+    }
+    const amount = Math.round(price * 100);
 
     // Create Razorpay order
     const order = await razorpay.orders.create({
@@ -57,7 +62,8 @@ export const createOrder = async (req: Request, res: Response) => {
       receipt: `receipt_${Date.now()}`,
       notes: {
         planId: plan.id,
-        billingCycle,
+        planName: plan.name,
+        billingCycle: cycle,
       },
     });
 
@@ -168,15 +174,19 @@ export const verifyAndOnboard = async (req: Request, res: Response) => {
     }
 
     // --- Step 5: Determine subscription dates ---
-    const cycle = billingCycle === "YEARLY" ? "YEARLY" : "MONTHLY";
-    const months = cycle === "YEARLY" ? 12 : 1;
+    const cycle = (billingCycle || "MONTHLY").toUpperCase();
+    const months = cycle === "YEARLY" ? 12 : cycle === "QUARTERLY" ? 3 : 1;
     const startDate = new Date();
     const endDate = new Date();
     endDate.setMonth(endDate.getMonth() + months);
 
     // --- Step 6: Determine payment amount ---
-    const amount =
-      cycle === "YEARLY" ? plan.yearlyPrice : plan.monthlyPrice;
+    let amount = plan.monthlyPrice;
+    if (cycle === "YEARLY") {
+      amount = plan.yearlyPrice;
+    } else if (cycle === "QUARTERLY") {
+      amount = plan.name === "Starter" ? 12000 : plan.name === "Growth" ? 15000 : plan.monthlyPrice * 3;
+    }
 
     // --- Step 7: Generate temp password for admin user ---
     const tempPassword = `Encalm@${Math.random().toString(36).slice(-6).toUpperCase()}`;
@@ -229,7 +239,7 @@ export const verifyAndOnboard = async (req: Request, res: Response) => {
       // Create default Admin Role for this tenant
       const adminRole = await tx.role.create({
         data: {
-          name: "Admin",
+          name: "HR_ADMIN",
           tenantId: tenant.id,
           accessibleModules:
             "HR,ATTENDANCE,PAYROLL,LEAVE,REPORTS,MASTERS,SETTINGS",
@@ -251,14 +261,38 @@ export const verifyAndOnboard = async (req: Request, res: Response) => {
       return { tenant, subscription, user };
     });
 
-    // --- Step 9: Return credentials to landing page ---
+    // --- Step 9: Dispatch Real Welcome Email via SMTP ---
+    const loginUrl = process.env.FRONTEND_URL || "https://omnihr-frontend.vercel.app";
+    try {
+      const emailContent = companyOnboardingTemplate({
+        companyName,
+        adminName: adminName || companyName,
+        email,
+        password: tempPassword,
+        loginUrl,
+        planName: plan.name,
+        billingCycle: cycle,
+      });
+
+      await sendMail({
+        to: email,
+        subject: `🎉 Welcome to OmniHR - Your Organization Account is Ready!`,
+        html: emailContent.html,
+        text: emailContent.text,
+      });
+      console.log(`[verifyAndOnboard] Real onboarding email sent successfully to ${email}`);
+    } catch (emailErr) {
+      console.error("[verifyAndOnboard] Failed to send onboarding email:", emailErr);
+    }
+
+    // --- Step 10: Return credentials and loginUrl to landing page ---
     return res.status(201).json({
       success: true,
-      message: "Company onboarded successfully!",
+      message: "Company onboarded successfully! Credentials have been sent to your email.",
       domain: result.tenant.domain,
       email,
-      tempPassword, // landing page shows this to user or sends via email
-      loginUrl: `https://${result.tenant.domain}.hrms.com/login`,
+      tempPassword,
+      loginUrl,
     });
   } catch (error: any) {
     console.error("[verifyAndOnboard] Error:", error);

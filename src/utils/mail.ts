@@ -129,3 +129,76 @@ export const otpTemplate = ({ otp }: { otp: string }) => {
     text: `Your OmniHR OTP is ${otp}. It is valid for 10 minutes.`,
   };
 };
+
+// ✅ ADDED: Company Customer Onboarding Email Template
+export const companyOnboardingTemplate = ({
+  companyName,
+  adminName,
+  email,
+  password,
+  loginUrl,
+  planName,
+  billingCycle,
+}: {
+  companyName: string;
+  adminName: string;
+  email: string;
+  password: string;
+  loginUrl: string;
+  planName: string;
+  billingCycle: string;
+}) => {
+  return {
+    html: `
+      <div style="margin:0;padding:0;background:#07071b;font-family:Arial,sans-serif;color:#ffffff;">
+        <div style="max-width:620px;margin:0 auto;padding:30px 15px;">
+          <div style="background:#0f1026;border:1px solid rgba(124,58,237,0.3);border-radius:16px;overflow:hidden;box-shadow:0 10px 30px rgba(124,58,237,0.15);">
+            
+            <div style="background:linear-gradient(135deg,#7c3aed,#4f46e5);padding:32px;text-align:center;color:white;">
+              <h1 style="margin:0;font-size:28px;letter-spacing:-0.5px;">OmniHR</h1>
+              <p style="margin:8px 0 0;font-size:15px;opacity:0.9;">All-in-One HR Management Platform</p>
+            </div>
+
+            <div style="padding:32px;color:#e2e8f0;">
+              <h2 style="margin:0 0 12px;color:#ffffff;">Welcome to OmniHR, ${adminName}! 🎉</h2>
+              <p style="color:#94a3b8;font-size:15px;line-height:1.6;margin:0 0 20px;">
+                Thank you for subscribing to the <strong>${planName} Plan (${billingCycle})</strong> for <strong>${companyName}</strong>. Your organization workspace has been created successfully.
+              </p>
+
+              <div style="background:#171838;border:1px solid rgba(168,85,247,0.25);border-radius:12px;padding:20px;margin:24px 0;">
+                <p style="margin:0 0 6px;color:#a855f7;font-size:12px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;">Admin Login Email</p>
+                <p style="margin:0 0 16px;color:#ffffff;font-size:16px;font-weight:600;">${email}</p>
+
+                <p style="margin:0 0 6px;color:#a855f7;font-size:12px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;">Temporary Password</p>
+                <p style="margin:0;color:#ffffff;font-size:18px;font-weight:bold;letter-spacing:1.5px;font-family:monospace;">${password}</p>
+              </div>
+
+              <div style="text-align:center;margin:32px 0;">
+                <a href="${loginUrl}" 
+                   style="display:inline-block;background:#7c3aed;color:#ffffff;text-decoration:none;padding:14px 32px;border-radius:8px;font-weight:bold;font-size:16px;box-shadow:0 4px 14px rgba(124,58,237,0.4);">
+                  Log In to Your Workspace →
+                </a>
+              </div>
+
+              <p style="color:#f87171;font-size:13px;line-height:1.5;margin:20px 0 0;">
+                ⚠️ For security, please change your password immediately after your first login.
+              </p>
+
+              <div style="border-top:1px solid rgba(255,255,255,0.08);margin-top:24px;padding-top:16px;">
+                <p style="color:#64748b;font-size:13px;margin:0;">
+                  If the button above does not work, visit:<br/>
+                  <a href="${loginUrl}" style="color:#a855f7;text-decoration:none;">${loginUrl}</a>
+                </p>
+              </div>
+            </div>
+
+            <div style="background:#0a0b1c;padding:16px;text-align:center;color:#64748b;font-size:12px;border-top:1px solid rgba(255,255,255,0.05);">
+              © ${new Date().getFullYear()} OmniHR. All rights reserved.
+            </div>
+          </div>
+        </div>
+      </div>
+    `,
+    text: `Welcome to OmniHR, ${adminName}! Your ${planName} subscription (${billingCycle}) for ${companyName} is ready. Login: ${loginUrl} | Email: ${email} | Password: ${password}`,
+  };
+};
