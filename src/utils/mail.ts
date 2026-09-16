@@ -26,8 +26,10 @@ export const sendMail = async ({
     return;
   }
 
+  const sender = process.env.SMTP_FROM || `OmniHR <${process.env.SMTP_USER}>`;
+
   await transporter.sendMail({
-    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    from: sender,
     to,
     subject,
     html,
@@ -35,7 +37,9 @@ export const sendMail = async ({
   });
 };
 
-// ✅ ADDED: Professional employee welcome email template
+// ============================================================
+// 1. Employee Welcome Email Template
+// ============================================================
 export const employeeWelcomeTemplate = ({
   name,
   email,
@@ -49,88 +53,101 @@ export const employeeWelcomeTemplate = ({
 }) => {
   return {
     html: `
-      <div style="margin:0;padding:0;background:#f4f7fb;font-family:Arial,sans-serif;">
-        <div style="max-width:620px;margin:0 auto;padding:30px 15px;">
-          <div style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,0.08);">
-            
-            <div style="background:linear-gradient(135deg,#2563eb,#0f172a);padding:28px;text-align:center;color:white;">
-              <h1 style="margin:0;font-size:26px;">OmniHR</h1>
-              <p style="margin:8px 0 0;font-size:14px;">Employee Management Portal</p>
-            </div>
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Welcome to OmniHR</title>
+      </head>
+      <body style="margin:0;padding:0;background-color:#F4F6FB;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#12151C;">
+        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#F4F6FB;padding:40px 16px;">
+          <tr>
+            <td align="center">
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width:580px;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 8px 30px rgba(44,79,214,0.08);border:1px solid #E2E6ED;">
+                
+                <!-- Brand Header -->
+                <tr>
+                  <td style="background:linear-gradient(135deg,#2C4FD6 0%,#1B36A8 100%);padding:36px 32px;text-align:center;">
+                    <div style="display:inline-block;width:44px;height:44px;background:#ffffff;border-radius:8px;text-align:center;line-height:44px;font-size:22px;font-weight:800;color:#2C4FD6;margin-bottom:12px;box-shadow:0 4px 12px rgba(0,0,0,0.15);">
+                      O
+                    </div>
+                    <h1 style="margin:0;font-size:24px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;">OmniHR</h1>
+                    <p style="margin:6px 0 0;font-size:13px;color:rgba(255,255,255,0.85);font-weight:400;">All-in-One HR & Workforce Management</p>
+                  </td>
+                </tr>
 
-            <div style="padding:32px;">
-              <h2 style="margin:0 0 10px;color:#111827;">Welcome, ${name} 👋</h2>
-              <p style="color:#4b5563;font-size:15px;line-height:1.6;">
-                Your employee account has been created successfully. Use the credentials below to login.
-              </p>
+                <!-- Content Area -->
+                <tr>
+                  <td style="padding:36px 32px;">
+                    <h2 style="margin:0 0 12px;font-size:20px;font-weight:700;color:#12151C;">Welcome aboard, ${name}! 👋</h2>
+                    <p style="margin:0 0 24px;font-size:14px;line-height:1.6;color:#5B6472;">
+                      Your employee account has been created on the <strong>OmniHR</strong> portal. You can now access your attendance, leaves, directory, and workspace tools.
+                    </p>
 
-              <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:18px;margin:24px 0;">
-                <p style="margin:0 0 8px;color:#6b7280;font-size:13px;">Email</p>
-                <p style="margin:0 0 18px;color:#111827;font-size:16px;font-weight:bold;">${email}</p>
+                    <!-- Credentials Box -->
+                    <div style="background:#F7F8FA;border:1px solid #E2E6ED;border-radius:8px;padding:20px;margin-bottom:24px;">
+                      <div style="margin-bottom:14px;">
+                        <span style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:#717E95;margin-bottom:4px;">Registered Email</span>
+                        <span style="font-size:15px;font-weight:600;color:#12151C;">${email}</span>
+                      </div>
+                      <div>
+                        <span style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:#717E95;margin-bottom:4px;">Temporary Password</span>
+                        <span style="display:inline-block;background:#E8ECFC;color:#2C4FD6;font-family:monospace;font-size:16px;font-weight:700;padding:4px 10px;border-radius:6px;letter-spacing:1px;">${password}</span>
+                      </div>
+                    </div>
 
-                <p style="margin:0 0 8px;color:#6b7280;font-size:13px;">Temporary Password</p>
-                <p style="margin:0;color:#111827;font-size:18px;font-weight:bold;letter-spacing:1px;">${password}</p>
-              </div>
+                    <!-- Security / Action Notice -->
+                    <div style="background:#FFF9EB;border-left:4px solid #F59E0B;border-radius:0 8px 8px 0;padding:16px;margin-bottom:28px;">
+                      <div style="display:flex;align-items:center;margin-bottom:4px;">
+                        <strong style="color:#B45309;font-size:13px;">🔒 Security Step (Recommended before login)</strong>
+                      </div>
+                      <p style="margin:0;color:#92400E;font-size:13px;line-height:1.5;">
+                        Before logging in for the first time, please click on <strong>"Forgot Password"</strong> on the sign-in screen to set your own secure permanent password using your registered email.
+                      </p>
+                    </div>
 
-              <div style="text-align:center;margin:30px 0;">
-                <a href="${loginUrl}" 
-                   style="display:inline-block;background:#2563eb;color:white;text-decoration:none;padding:14px 28px;border-radius:10px;font-weight:bold;font-size:15px;">
-                  Login To OmniHR
-                </a>
-              </div>
+                    <!-- CTA Button -->
+                    <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td align="center" style="padding-bottom:24px;">
+                          <a href="${loginUrl}" style="display:inline-block;background:#2C4FD6;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:12px 32px;border-radius:6px;box-shadow:0 4px 14px rgba(44,79,214,0.3);">
+                            Open OmniHR Portal →
+                          </a>
+                        </td>
+                      </tr>
+                    </table>
 
-              <p style="color:#ef4444;font-size:14px;line-height:1.6;">
-                Security Note: Please change your password after your first login.
-              </p>
+                    <p style="margin:0;font-size:12px;color:#9AA3B1;line-height:1.5;text-align:center;">
+                      If the button does not work, copy and paste this link into your browser:<br/>
+                      <a href="${loginUrl}" style="color:#2C4FD6;text-decoration:none;word-break:break-all;">${loginUrl}</a>
+                    </p>
+                  </td>
+                </tr>
 
-              <p style="color:#6b7280;font-size:13px;margin-top:24px;">
-                If the button does not work, copy this link:<br/>
-                <a href="${loginUrl}" style="color:#2563eb;">${loginUrl}</a>
-              </p>
-            </div>
+                <!-- Footer -->
+                <tr>
+                  <td style="background:#F7F8FA;border-top:1px solid #E2E6ED;padding:20px 32px;text-align:center;">
+                    <p style="margin:0;font-size:12px;color:#717E95;">
+                      © ${new Date().getFullYear()} OmniHR SaaS Platform. All rights reserved.
+                    </p>
+                  </td>
+                </tr>
 
-            <div style="background:#f9fafb;padding:18px;text-align:center;color:#6b7280;font-size:12px;">
-              © ${new Date().getFullYear()} OmniHR. All rights reserved.
-            </div>
-          </div>
-        </div>
-      </div>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
+      </html>
     `,
-    text: `Welcome ${name}. Your OmniHR account has been created. Email: ${email}, Temporary Password: ${password}, Login: ${loginUrl}`,
+    text: `Welcome to OmniHR, ${name}! Your employee account is ready. Registered Email: ${email} | Temporary Password: ${password}. For security, before your first login, please click 'Forgot Password' on the login screen (${loginUrl}) to set your own password.`,
   };
 };
 
-// ✅ ADDED: Professional OTP email template
-export const otpTemplate = ({ otp }: { otp: string }) => {
-  return {
-    html: `
-      <div style="margin:0;padding:0;background:#f4f7fb;font-family:Arial,sans-serif;">
-        <div style="max-width:560px;margin:0 auto;padding:30px 15px;">
-          <div style="background:white;border-radius:16px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,0.08);">
-            <div style="background:#0f172a;padding:24px;text-align:center;color:white;">
-              <h2 style="margin:0;">OmniHR</h2>
-              <p style="margin:8px 0 0;font-size:14px;">Password Reset Verification</p>
-            </div>
-
-            <div style="padding:30px;text-align:center;">
-              <h2 style="color:#111827;">Your OTP Code</h2>
-              <p style="color:#4b5563;">Use the OTP below to reset your password.</p>
-
-              <div style="margin:25px auto;background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:18px;font-size:32px;font-weight:bold;letter-spacing:8px;color:#2563eb;">
-                ${otp}
-              </div>
-
-              <p style="color:#ef4444;font-size:14px;">This OTP is valid for 10 minutes.</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    `,
-    text: `Your OmniHR OTP is ${otp}. It is valid for 10 minutes.`,
-  };
-};
-
-// ✅ ADDED: Company Customer Onboarding Email Template
+// ============================================================
+// 2. Company Onboarding Email Template (Subscription / Payment)
+// ============================================================
 export const companyOnboardingTemplate = ({
   companyName,
   adminName,
@@ -150,55 +167,179 @@ export const companyOnboardingTemplate = ({
 }) => {
   return {
     html: `
-      <div style="margin:0;padding:0;background:#07071b;font-family:Arial,sans-serif;color:#ffffff;">
-        <div style="max-width:620px;margin:0 auto;padding:30px 15px;">
-          <div style="background:#0f1026;border:1px solid rgba(124,58,237,0.3);border-radius:16px;overflow:hidden;box-shadow:0 10px 30px rgba(124,58,237,0.15);">
-            
-            <div style="background:linear-gradient(135deg,#7c3aed,#4f46e5);padding:32px;text-align:center;color:white;">
-              <h1 style="margin:0;font-size:28px;letter-spacing:-0.5px;">OmniHR</h1>
-              <p style="margin:8px 0 0;font-size:15px;opacity:0.9;">All-in-One HR Management Platform</p>
-            </div>
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Welcome to OmniHR</title>
+      </head>
+      <body style="margin:0;padding:0;background-color:#F4F6FB;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#12151C;">
+        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#F4F6FB;padding:40px 16px;">
+          <tr>
+            <td align="center">
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 8px 30px rgba(44,79,214,0.08);border:1px solid #E2E6ED;">
+                
+                <!-- Brand Header -->
+                <tr>
+                  <td style="background:linear-gradient(135deg,#2C4FD6 0%,#1B36A8 100%);padding:36px 32px;text-align:center;">
+                    <div style="display:inline-block;width:46px;height:46px;background:#ffffff;border-radius:8px;text-align:center;line-height:46px;font-size:24px;font-weight:800;color:#2C4FD6;margin-bottom:12px;box-shadow:0 4px 14px rgba(0,0,0,0.15);">
+                      O
+                    </div>
+                    <h1 style="margin:0;font-size:26px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;">OmniHR</h1>
+                    <p style="margin:6px 0 0;font-size:13px;color:rgba(255,255,255,0.9);">All-in-One HR & Organization Management</p>
+                  </td>
+                </tr>
 
-            <div style="padding:32px;color:#e2e8f0;">
-              <h2 style="margin:0 0 12px;color:#ffffff;">Welcome to OmniHR, ${adminName}! 🎉</h2>
-              <p style="color:#94a3b8;font-size:15px;line-height:1.6;margin:0 0 20px;">
-                Thank you for subscribing to the <strong>${planName} Plan (${billingCycle})</strong> for <strong>${companyName}</strong>. Your organization workspace has been created successfully.
-              </p>
+                <!-- Content Body -->
+                <tr>
+                  <td style="padding:36px 32px;">
+                    <h2 style="margin:0 0 12px;font-size:21px;font-weight:700;color:#12151C;">Welcome to OmniHR, ${adminName}! 🎉</h2>
+                    <p style="margin:0 0 20px;font-size:14px;line-height:1.6;color:#5B6472;">
+                      Thank you for choosing OmniHR. Your <strong>${planName} Plan (${billingCycle})</strong> subscription for <strong>${companyName}</strong> has been activated, and your organization admin workspace is ready.
+                    </p>
 
-              <div style="background:#171838;border:1px solid rgba(168,85,247,0.25);border-radius:12px;padding:20px;margin:24px 0;">
-                <p style="margin:0 0 6px;color:#a855f7;font-size:12px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;">Admin Login Email</p>
-                <p style="margin:0 0 16px;color:#ffffff;font-size:16px;font-weight:600;">${email}</p>
+                    <!-- Account Details Box -->
+                    <div style="background:#F7F8FA;border:1px solid #E2E6ED;border-radius:8px;padding:22px;margin-bottom:24px;">
+                      <table width="100%" border="0" cellspacing="0" cellpadding="0" style="font-size:14px;">
+                        <tr>
+                          <td style="padding:6px 0;color:#717E95;font-size:12px;font-weight:600;text-transform:uppercase;">Company Workspace:</td>
+                          <td style="padding:6px 0;color:#12151C;font-weight:700;text-align:right;">${companyName}</td>
+                        </tr>
+                        <tr>
+                          <td style="padding:6px 0;color:#717E95;font-size:12px;font-weight:600;text-transform:uppercase;">Subscription Plan:</td>
+                          <td style="padding:6px 0;color:#2C4FD6;font-weight:700;text-align:right;">${planName} (${billingCycle})</td>
+                        </tr>
+                        <tr>
+                          <td style="padding:6px 0;color:#717E95;font-size:12px;font-weight:600;text-transform:uppercase;">Admin Login Email:</td>
+                          <td style="padding:6px 0;color:#12151C;font-weight:700;text-align:right;">${email}</td>
+                        </tr>
+                        <tr>
+                          <td style="padding:6px 0;color:#717E95;font-size:12px;font-weight:600;text-transform:uppercase;">Temporary Password:</td>
+                          <td style="padding:6px 0;text-align:right;">
+                            <span style="background:#E8ECFC;color:#2C4FD6;font-family:monospace;font-size:15px;font-weight:700;padding:3px 8px;border-radius:4px;">${password}</span>
+                          </td>
+                        </tr>
+                      </table>
+                    </div>
 
-                <p style="margin:0 0 6px;color:#a855f7;font-size:12px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;">Temporary Password</p>
-                <p style="margin:0;color:#ffffff;font-size:18px;font-weight:bold;letter-spacing:1.5px;font-family:monospace;">${password}</p>
-              </div>
+                    <!-- Security Notice Box -->
+                    <div style="background:#FFF9EB;border-left:4px solid #F59E0B;border-radius:0 8px 8px 0;padding:16px;margin-bottom:28px;">
+                      <div style="margin-bottom:4px;">
+                        <strong style="color:#B45309;font-size:13px;">🔒 Important Security Step</strong>
+                      </div>
+                      <p style="margin:0;color:#92400E;font-size:13px;line-height:1.5;">
+                        Before logging in for the first time, please click on <strong>"Forgot Password"</strong> on the sign-in page to verify your email and set your own secure permanent password.
+                      </p>
+                    </div>
 
-              <div style="text-align:center;margin:32px 0;">
-                <a href="${loginUrl}" 
-                   style="display:inline-block;background:#7c3aed;color:#ffffff;text-decoration:none;padding:14px 32px;border-radius:8px;font-weight:bold;font-size:16px;box-shadow:0 4px 14px rgba(124,58,237,0.4);">
-                  Log In to Your Workspace →
-                </a>
-              </div>
+                    <!-- CTA Button -->
+                    <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td align="center" style="padding-bottom:24px;">
+                          <a href="${loginUrl}" style="display:inline-block;background:#2C4FD6;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:13px 36px;border-radius:6px;box-shadow:0 4px 14px rgba(44,79,214,0.3);">
+                            Log In to Your Workspace →
+                          </a>
+                        </td>
+                      </tr>
+                    </table>
 
-              <p style="color:#f87171;font-size:13px;line-height:1.5;margin:20px 0 0;">
-                ⚠️ For security, please change your password immediately after your first login.
-              </p>
+                    <p style="margin:0;font-size:12px;color:#9AA3B1;line-height:1.5;text-align:center;">
+                      If the button above does not work, visit:<br/>
+                      <a href="${loginUrl}" style="color:#2C4FD6;text-decoration:none;word-break:break-all;">${loginUrl}</a>
+                    </p>
+                  </td>
+                </tr>
 
-              <div style="border-top:1px solid rgba(255,255,255,0.08);margin-top:24px;padding-top:16px;">
-                <p style="color:#64748b;font-size:13px;margin:0;">
-                  If the button above does not work, visit:<br/>
-                  <a href="${loginUrl}" style="color:#a855f7;text-decoration:none;">${loginUrl}</a>
-                </p>
-              </div>
-            </div>
+                <!-- Footer -->
+                <tr>
+                  <td style="background:#F7F8FA;border-top:1px solid #E2E6ED;padding:20px 32px;text-align:center;">
+                    <p style="margin:0;font-size:12px;color:#717E95;">
+                      © ${new Date().getFullYear()} OmniHR SaaS Platform. All rights reserved.
+                    </p>
+                  </td>
+                </tr>
 
-            <div style="background:#0a0b1c;padding:16px;text-align:center;color:#64748b;font-size:12px;border-top:1px solid rgba(255,255,255,0.05);">
-              © ${new Date().getFullYear()} OmniHR. All rights reserved.
-            </div>
-          </div>
-        </div>
-      </div>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
+      </html>
     `,
-    text: `Welcome to OmniHR, ${adminName}! Your ${planName} subscription (${billingCycle}) for ${companyName} is ready. Login: ${loginUrl} | Email: ${email} | Password: ${password}`,
+    text: `Welcome to OmniHR, ${adminName}! Your ${planName} subscription (${billingCycle}) for ${companyName} is ready. Workspace Login: ${loginUrl} | Email: ${email} | Temporary Password: ${password}. Important: Before logging in for the first time, please click on 'Forgot Password' on the login page to set your own password.`,
+  };
+};
+
+// ============================================================
+// 3. OTP Verification Email Template
+// ============================================================
+export const otpTemplate = ({ otp }: { otp: string }) => {
+  return {
+    html: `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>OmniHR Verification Code</title>
+      </head>
+      <body style="margin:0;padding:0;background-color:#F4F6FB;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#12151C;">
+        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#F4F6FB;padding:40px 16px;">
+          <tr>
+            <td align="center">
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width:520px;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 8px 30px rgba(44,79,214,0.08);border:1px solid #E2E6ED;">
+                
+                <!-- Brand Header -->
+                <tr>
+                  <td style="background:linear-gradient(135deg,#2C4FD6 0%,#1B36A8 100%);padding:30px 24px;text-align:center;">
+                    <div style="display:inline-block;width:42px;height:42px;background:#ffffff;border-radius:8px;text-align:center;line-height:42px;font-size:20px;font-weight:800;color:#2C4FD6;margin-bottom:10px;">
+                      O
+                    </div>
+                    <h1 style="margin:0;font-size:22px;font-weight:700;color:#ffffff;">OmniHR</h1>
+                    <p style="margin:4px 0 0;font-size:12px;color:rgba(255,255,255,0.85);">Security Verification</p>
+                  </td>
+                </tr>
+
+                <!-- Content Area -->
+                <tr>
+                  <td style="padding:32px 28px;text-align:center;">
+                    <h2 style="margin:0 0 8px;font-size:18px;font-weight:700;color:#12151C;">Your One-Time Password (OTP)</h2>
+                    <p style="margin:0 0 24px;font-size:13px;line-height:1.5;color:#5B6472;">
+                      Use the 6-digit verification code below to reset your password.
+                    </p>
+
+                    <div style="display:inline-block;background:#E8ECFC;border:1px solid #2C4FD6;border-radius:8px;padding:14px 28px;margin-bottom:20px;">
+                      <span style="font-family:monospace;font-size:30px;font-weight:800;letter-spacing:8px;color:#2C4FD6;">
+                        ${otp}
+                      </span>
+                    </div>
+
+                    <p style="margin:0 0 4px;font-size:12px;color:#B45309;font-weight:600;">
+                      ⏰ This code will expire in 10 minutes.
+                    </p>
+                    <p style="margin:0;font-size:12px;color:#9AA3B1;">
+                      If you did not request this verification code, you can safely ignore this email.
+                    </p>
+                  </td>
+                </tr>
+
+                <!-- Footer -->
+                <tr>
+                  <td style="background:#F7F8FA;border-top:1px solid #E2E6ED;padding:16px 24px;text-align:center;">
+                    <p style="margin:0;font-size:11px;color:#717E95;">
+                      © ${new Date().getFullYear()} OmniHR SaaS Platform. All rights reserved.
+                    </p>
+                  </td>
+                </tr>
+
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
+      </html>
+    `,
+    text: `Your OmniHR verification code is ${otp}. This code is valid for 10 minutes.`,
   };
 };

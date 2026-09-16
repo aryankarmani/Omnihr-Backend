@@ -4,12 +4,12 @@ import { sendMail } from "../utils/mail";
 const prisma = new PrismaClient();
 
 export const NOTIFICATION_INTERVALS: { days: number; type: string; title: string }[] = [
-  { days: 30, type: "EXPIRY_30_DAYS", title: "Encalm HRMS Subscription Expires in 30 Days" },
-  { days: 15, type: "EXPIRY_15_DAYS", title: "Encalm HRMS Subscription Expires in 15 Days" },
-  { days: 7,  type: "EXPIRY_7_DAYS",  title: "Urgent: Encalm HRMS Subscription Expires in 7 Days" },
-  { days: 3,  type: "EXPIRY_3_DAYS",  title: "Critical: Encalm HRMS Subscription Expires in 3 Days" },
-  { days: 1,  type: "EXPIRY_1_DAY",   title: "Final Reminder: Encalm HRMS Subscription Expires Tomorrow" },
-  { days: 0,  type: "SUBSCRIPTION_EXPIRED", title: "Your Encalm HRMS Subscription Has Expired" },
+  { days: 30, type: "EXPIRY_30_DAYS", title: "OmniHR Subscription Expires in 30 Days" },
+  { days: 15, type: "EXPIRY_15_DAYS", title: "OmniHR Subscription Expires in 15 Days" },
+  { days: 7,  type: "EXPIRY_7_DAYS",  title: "Urgent: OmniHR Subscription Expires in 7 Days" },
+  { days: 3,  type: "EXPIRY_3_DAYS",  title: "Critical: OmniHR Subscription Expires in 3 Days" },
+  { days: 1,  type: "EXPIRY_1_DAY",   title: "Final Reminder: OmniHR Subscription Expires Tomorrow" },
+  { days: 0,  type: "SUBSCRIPTION_EXPIRED", title: "Your OmniHR Subscription Has Expired" },
 ];
 
 /**
@@ -139,39 +139,53 @@ async function dispatchExpiryNotification(
     }
 
     const emailHtml = `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; background: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px;">
-        <div style="display: flex; align-items: center; margin-bottom: 20px;">
-          <h2 style="color: #111827; margin: 0; font-size: 20px; font-weight: 700;">Encalm HRMS</h2>
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 32px 16px; background-color: #F4F6FB;">
+        <div style="background: #ffffff; border: 1px solid #E2E6ED; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.06);">
+          <div style="background: linear-gradient(135deg, #2C4FD6 0%, #1B36A8 100%); padding: 28px; text-align: center;">
+            <div style="display: inline-block; width: 40px; height: 40px; background: #ffffff; border-radius: 8px; text-align: center; line-height: 40px; font-size: 20px; font-weight: 800; color: #2C4FD6; margin-bottom: 8px;">
+              O
+            </div>
+            <h2 style="color: #ffffff; margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.3px;">OmniHR</h2>
+            <p style="margin: 4px 0 0; font-size: 12px; color: rgba(255,255,255,0.85);">Subscription & Billing</p>
+          </div>
+
+          <div style="padding: 28px;">
+            <div style="padding: 16px; background-color: ${isExpired ? '#FEF2F2' : '#FFFBEB'}; border-left: 4px solid ${isExpired ? '#EF4444' : '#F59E0B'}; border-radius: 0 8px 8px 0; margin-bottom: 22px;">
+              <strong style="color: ${isExpired ? '#991B1B' : '#92400E'}; font-size: 14px; display: block; margin-bottom: 4px;">
+                ${isExpired ? '⚠️ Subscription Expired' : '⏰ Subscription Expiry Notice'}
+              </strong>
+              <p style="margin: 0; color: ${isExpired ? '#B91C1C' : '#B45309'}; font-size: 13px; line-height: 1.5;">
+                ${messageBody}
+              </p>
+            </div>
+
+            <div style="background: #F7F8FA; border: 1px solid #E2E6ED; border-radius: 8px; padding: 18px; margin-bottom: 22px;">
+              <table style="width: 100%; border-collapse: collapse; font-size: 13.5px;">
+                <tr>
+                  <td style="padding: 6px 0; color: #717E95; font-size: 12px; font-weight: 600; text-transform: uppercase;">Company:</td>
+                  <td style="padding: 6px 0; color: #12151C; font-weight: 700; text-align: right;">${tenant.name}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 0; color: #717E95; font-size: 12px; font-weight: 600; text-transform: uppercase;">Plan:</td>
+                  <td style="padding: 6px 0; color: #2C4FD6; font-weight: 700; text-align: right;">${plan.name}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 0; color: #717E95; font-size: 12px; font-weight: 600; text-transform: uppercase;">Expiry Date:</td>
+                  <td style="padding: 6px 0; color: #12151C; font-weight: 700; text-align: right;">${expiryDateFormatted}</td>
+                </tr>
+              </table>
+            </div>
+
+            <p style="color: #5B6472; font-size: 13px; line-height: 1.6; margin: 0 0 20px;">
+              Please renew your plan or contact support to ensure uninterrupted service for your team and organization.
+            </p>
+
+            <hr style="border: none; border-top: 1px solid #E2E6ED; margin: 20px 0;" />
+            <p style="color: #9AA3B1; font-size: 11px; margin: 0; text-align: center;">
+              This is an automated notification from OmniHR SaaS Platform.
+            </p>
+          </div>
         </div>
-        <div style="padding: 16px; background-color: ${isExpired ? "#fee2e2" : "#fef3c7"}; border-radius: 6px; margin-bottom: 20px;">
-          <strong style="color: ${isExpired ? "#991b1b" : "#92400e"}; font-size: 15px;">
-            ${isExpired ? "⚠️ Subscription Expired" : "⏰ Subscription Expiry Notice"}
-          </strong>
-          <p style="margin: 8px 0 0; color: ${isExpired ? "#b91c1c" : "#b45309"}; font-size: 14px; line-height: 1.5;">
-            ${messageBody}
-          </p>
-        </div>
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 24px; font-size: 14px;">
-          <tr>
-            <td style="padding: 8px 0; color: #6b7280;">Company:</td>
-            <td style="padding: 8px 0; color: #111827; font-weight: 600; text-align: right;">${tenant.name}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px 0; color: #6b7280;">Plan:</td>
-            <td style="padding: 8px 0; color: #111827; font-weight: 600; text-align: right;">${plan.name}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px 0; color: #6b7280;">Expiry Date:</td>
-            <td style="padding: 8px 0; color: #111827; font-weight: 600; text-align: right;">${expiryDateFormatted}</td>
-          </tr>
-        </table>
-        <p style="color: #4b5563; font-size: 13px; line-height: 1.5;">
-          Please contact your platform administrator or account manager to renew your subscription and maintain uninterrupted access.
-        </p>
-        <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 24px 0;" />
-        <p style="color: #9ca3af; font-size: 11px; margin: 0;">
-          This is an automated notification from Encalm HRMS SaaS Platform.
-        </p>
       </div>
     `;
 
@@ -235,7 +249,7 @@ export async function sendManualExpiryReminder(subscriptionId: string, customNot
   const now = new Date();
   const end = new Date(subscription.endDate);
   const daysRemaining = Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-  const subject = `Encalm HRMS: Subscription Update Reminder (${subscription.tenant.name})`;
+  const subject = `OmniHR: Subscription Update Reminder (${subscription.tenant.name})`;
 
   await dispatchExpiryNotification(
     subscription,

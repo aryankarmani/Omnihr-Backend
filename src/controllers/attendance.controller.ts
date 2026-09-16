@@ -115,7 +115,7 @@ const calculateRegularizedStatus = (inTime?: Date | null, outTime?: Date | null)
 export const getPunchStatus = async (req: AuthRequest, res: Response) => {
     try {
         const userId = req.user.id;
-        const today = new Date().toISOString().split('T')[0];
+        const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
 
         const record = await prisma.attendanceRecord.findFirst({
             where: {
@@ -149,7 +149,7 @@ export const punchToggle = async (req: AuthRequest, res: Response) => {
         const userId = req.user.id;
         const tenantId = req.user.tenantId;
         const now = new Date();
-        const today = now.toISOString().split('T')[0];
+        const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(now);
 
         let record = await prisma.attendanceRecord.findUnique({
             where: {

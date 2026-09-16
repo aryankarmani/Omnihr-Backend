@@ -80,7 +80,7 @@ export const register = async (req: Request, res: Response) => {
         name: role,
         tenantId: tenant.id,
         accessibleModules:
-          "DASHBOARD,EMPLOYEES,ATTENDANCE,LEAVE,REPORTS,MASTERS",
+          "DASHBOARD,ATTENDANCE,EMPLOYEE,TEAM,LEAVE,REPORTS,MASTERS,TASK,MY_PROFILE,EMPLOYEE_ATTENDANCE",
       },
     });
 

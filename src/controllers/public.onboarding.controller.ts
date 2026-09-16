@@ -189,12 +189,18 @@ export const verifyAndOnboard = async (req: Request, res: Response) => {
     }
 
     // --- Step 7: Generate temp password for admin user ---
-    const tempPassword = `Encalm@${Math.random().toString(36).slice(-6).toUpperCase()}`;
+    const tempPassword = `OmniHR@${Math.random().toString(36).slice(-6).toUpperCase()}`;
     const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
+    // Fetch all existing system permissions to connect to this Admin Role
+    const allPermissions = await prisma.permission.findMany({
+      select: { id: true, code: true },
+    });
+
     // --- Step 8: Create everything in a single DB transaction ---
-    const result = await prisma.$transaction(async (tx) => {
-      // Create Tenant (the company)
+    const result = await prisma.$transaction(
+      async (tx) => {
+        // Create Tenant (the company)
       const tenant = await tx.tenant.create({
         data: {
           name: companyName,
@@ -236,13 +242,16 @@ export const verifyAndOnboard = async (req: Request, res: Response) => {
         },
       });
 
-      // Create default Admin Role for this tenant
+      // Create default Admin Role for this tenant with full modules and permissions
       const adminRole = await tx.role.create({
         data: {
           name: "HR_ADMIN",
           tenantId: tenant.id,
           accessibleModules:
-            "HR,ATTENDANCE,PAYROLL,LEAVE,REPORTS,MASTERS,SETTINGS",
+            "DASHBOARD,ATTENDANCE,EMPLOYEE,TEAM,LEAVE,REPORTS,MASTERS,TASK,MY_PROFILE,EMPLOYEE_ATTENDANCE",
+          permissions: {
+            connect: allPermissions.map((p) => ({ id: p.id })),
+          },
         },
       });
 
@@ -258,7 +267,25 @@ export const verifyAndOnboard = async (req: Request, res: Response) => {
         },
       });
 
+      // Create initial EmployeeProfile for the Admin User
+      await tx.employeeProfile.create({
+        data: {
+          userId: user.id,
+          tenantId: tenant.id,
+          title: "System Admin",
+          department: "HR",
+          location: "Head Office",
+          joiningDate: new Date(),
+          status: "Active",
+          isActive: true,
+        },
+      });
+
       return { tenant, subscription, user };
+    },
+    {
+      maxWait: 15000,
+      timeout: 30000,
     });
 
     // --- Step 9: Dispatch Real Welcome Email via SMTP ---

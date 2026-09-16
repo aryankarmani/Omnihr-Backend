@@ -530,7 +530,7 @@ const profilePhotoPath = profilePhotoFile
             tenantId,
             userId: newUser.id,
             title: 'Welcome!',
-            message: 'Your employee account has been created in Encalm HRMS.',
+            message: 'Your employee account has been created in OmniHR.',
             type: 'employee',
         });
 
