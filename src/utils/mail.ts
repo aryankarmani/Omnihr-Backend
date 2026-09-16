@@ -67,10 +67,44 @@ export const sendMail = async ({
   html?: string;
   text?: string;
 }) => {
+  // 1. If Resend API Key is provided, send via HTTPS (Bypasses Render SMTP port blocking)
+  const resendApiKey = process.env.RESEND_API_KEY?.trim();
+  if (resendApiKey) {
+    try {
+      const fromEmail = process.env.RESEND_FROM || "OmniHR <onboarding@resend.dev>";
+      const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${resendApiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: fromEmail,
+          to: [to],
+          subject: subject,
+          html: html,
+          text: text,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || `Resend API error: ${response.statusText}`);
+      }
+
+      console.log(`✅ Email sent successfully to ${to} via Resend HTTP API`);
+      return data;
+    } catch (err) {
+      console.error(`❌ Resend HTTP error when sending email to ${to}:`, err);
+      throw err;
+    }
+  }
+
+  // 2. Fallback to Nodemailer SMTP (for local development)
   const transporter = getTransporter();
 
   if (!transporter) {
-    console.log("⚠️ SMTP not configured (SMTP_USER or SMTP_PASS missing). Email skipped.");
+    console.log("⚠️ Email not configured (RESEND_API_KEY or SMTP_USER missing). Email skipped.");
     return;
   }
 
@@ -82,9 +116,10 @@ export const sendMail = async ({
       html,
       text,
     });
+    console.log(`✅ Email sent successfully to ${to} via SMTP`);
     return info;
   } catch (error) {
-    console.error(`❌ Failed to send email to ${to}:`, error);
+    console.error(`❌ Failed to send email to ${to} via SMTP:`, error);
     throw error;
   }
 };
