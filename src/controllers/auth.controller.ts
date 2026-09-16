@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
-import jwt  from "jsonwebtoken";
+import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { sendMail, otpTemplate } from "../utils/mail";
 
@@ -11,9 +11,9 @@ const ACCESS_TOKEN_EXPIRES_IN = "24h";
 const REFRESH_TOKEN_DAYS = 7;
 
 const createAccessToken = (user: any) => {
-     //const secret = process.env.JWT_SECRET || "secret";
+  //const secret = process.env.JWT_SECRET || "secret";
 
-  
+
   return jwt.sign(
     {
       id: user.id,
@@ -80,7 +80,7 @@ export const register = async (req: Request, res: Response) => {
         name: role,
         tenantId: tenant.id,
         accessibleModules:
-          "DASHBOARD,EMPLOYEE,ATTENDANCE,LEAVE,REPORTS,MASTERS",
+          "DASHBOARD,ATTENDANCE,EMPLOYEE,TEAM,LEAVE,REPORTS,MASTERS,TASK,MY_PROFILE,EMPLOYEE_ATTENDANCE",
       },
     });
 
@@ -143,8 +143,8 @@ export const register = async (req: Request, res: Response) => {
 
 export const login = async (req: Request, res: Response) => {
   try {
-    
-    
+
+
     const email = req.body.email?.toLowerCase().trim();
     const password = req.body.password;
 
@@ -165,7 +165,7 @@ export const login = async (req: Request, res: Response) => {
         tenant: true,
       },
     });
-    
+
 
 
 

@@ -986,3 +986,23 @@ model SubscriptionNotification {
   @@index([subscriptionId])
   @@index([status])
 }
+
+model DemoRequest {
+  id          String   @id @default(uuid())
+  email       String
+  name        String?
+  phone       String?
+  companyName String?
+  teamSize    String?
+  message     String?  @db.Text
+  source      String   @default("BOTTOM_BANNER") // BOTTOM_BANNER | HERO_MODAL | NAVBAR
+  status      String   @default("PENDING") // PENDING | CONTACTED | SCHEDULED | COMPLETED | DISQUALIFIED
+  notes       String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([email])
+  @@index([status])
+  @@index([createdAt])
+}
+

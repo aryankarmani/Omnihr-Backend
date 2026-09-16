@@ -32,6 +32,12 @@ import {
   sendManualNotification,
   triggerExpiryCheck,
 } from "../controllers/superadmin.notification.controller";
+import {
+  getAllDemoRequests,
+  updateDemoRequest,
+  deleteDemoRequest,
+  sendEmailToLead,
+} from "../controllers/demoRequest.controller";
 
 const router = Router();
 
@@ -82,5 +88,13 @@ router.post("/payments", authenticateSuperAdmin, recordManualPayment);
 router.get("/notifications", authenticateSuperAdmin, getNotificationOverview);
 router.post("/notifications/send", authenticateSuperAdmin, sendManualNotification);
 router.post("/notifications/check", authenticateSuperAdmin, triggerExpiryCheck);
+
+// ==========================================
+// DEMO REQUESTS / LEADS
+// ==========================================
+router.get("/demo-requests", authenticateSuperAdmin, getAllDemoRequests);
+router.put("/demo-requests/:id", authenticateSuperAdmin, updateDemoRequest);
+router.delete("/demo-requests/:id", authenticateSuperAdmin, deleteDemoRequest);
+router.post("/demo-requests/:id/send-email", authenticateSuperAdmin, sendEmailToLead);
 
 export default router;

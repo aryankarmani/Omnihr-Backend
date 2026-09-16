@@ -170,7 +170,7 @@ export const getLiveAttendance = async (req: Request, res: Response) => {
         if (!tenantId) {
             return res.status(400).json({ message: 'Tenant ID required' });
         }
-        const today = new Date().toISOString().split('T')[0];
+        const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
 
         const records = await prisma.attendanceRecord.findMany({
             where: {
@@ -189,14 +189,20 @@ export const getLiveAttendance = async (req: Request, res: Response) => {
             },
         });
 
-        const timeSlots = ['10:00', '11:00', '13:00', '15:00', '17:00', '19:00', '21:00', '23:00'];
+        const timeSlots = [
+            '09:00', '10:00', '11:00', '12:00', '13:00', '14:00',
+            '15:00', '16:00', '17:00', '18:00', '19:00', '20:00',
+            '21:00', '22:00', '23:00'
+        ];
 
         const data = timeSlots.map((slot) => {
             const hour = Number(slot.split(':')[0]);
 
             const visitors = records.filter((record) => {
                 if (!record.inTime) return false;
-                const punchHour = new Date(record.inTime).getHours();
+                const d = new Date(record.inTime);
+                const hourStr = d.toLocaleTimeString('en-US', { timeZone: 'Asia/Kolkata', hour: 'numeric', hour12: false });
+                const punchHour = Number(hourStr);
 
                 return punchHour === hour;
             }).length;

@@ -4,6 +4,7 @@ import {
   createOrder,
   verifyAndOnboard,
 } from "../controllers/public.onboarding.controller";
+import { createDemoRequest } from "../controllers/demoRequest.controller";
 
 const router = Router();
 
@@ -29,5 +30,13 @@ router.post("/create-order", validateApiKey, createOrder);
  * Returns: { success, domain, email, tempPassword, loginUrl }
  */
 router.post("/verify-payment", validateApiKey, verifyAndOnboard);
+
+/**
+ * POST /api/public/demo-request
+ * Called by landing page when a visitor enters email or books a demo.
+ * Body: { email, name?, phone?, companyName?, teamSize?, message?, source? }
+ * Returns: { success, message, data }
+ */
+router.post("/demo-request", validateApiKey, createDemoRequest);
 
 export default router;
