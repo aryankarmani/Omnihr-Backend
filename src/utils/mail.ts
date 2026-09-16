@@ -67,7 +67,42 @@ export const sendMail = async ({
   html?: string;
   text?: string;
 }) => {
-  // 1. If Resend API Key is provided, send via HTTPS (Bypasses Render SMTP port blocking)
+  // 1. If Brevo API Key is provided, send via Brevo HTTPS REST API (allows sending to ANY recipient email)
+  const brevoApiKey = process.env.BREVO_API_KEY?.trim();
+  if (brevoApiKey) {
+    try {
+      const senderEmail = (process.env.BREVO_SENDER_EMAIL || process.env.SMTP_USER || "aryankarmani2003@gmail.com").trim();
+      const senderName = process.env.BREVO_SENDER_NAME || "OmniHR";
+      const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+        method: "POST",
+        headers: {
+          "api-key": brevoApiKey,
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+        body: JSON.stringify({
+          sender: { name: senderName, email: senderEmail },
+          to: [{ email: to }],
+          subject: subject,
+          htmlContent: html,
+          textContent: text,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || `Brevo API error: ${response.statusText}`);
+      }
+
+      console.log(`✅ Email sent successfully to ${to} via Brevo HTTP API`);
+      return data;
+    } catch (err) {
+      console.error(`❌ Brevo HTTP error when sending email to ${to}:`, err);
+      throw err;
+    }
+  }
+
+  // 2. If Resend API Key is provided, send via HTTPS
   const resendApiKey = process.env.RESEND_API_KEY?.trim();
   if (resendApiKey) {
     try {
