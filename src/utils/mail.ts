@@ -9,15 +9,35 @@ dotenv.config();
 dns.setDefaultResultOrder("ipv4first");
 
 const getTransporter = () => {
-  const host = (process.env.SMTP_HOST || "smtp.gmail.com").trim();
-  const port = Number(process.env.SMTP_PORT || 587);
-  const secure = process.env.SMTP_SECURE === "true";
   const user = process.env.SMTP_USER?.trim();
-  const pass = process.env.SMTP_PASS?.trim();
+  const rawPass = process.env.SMTP_PASS?.trim();
+  const pass = rawPass?.replace(/\s+/g, ""); // Remove spaces from Google App Password
 
   if (!user || !pass) {
     return null;
   }
+
+  const host = (process.env.SMTP_HOST || "smtp.gmail.com").trim();
+
+  // If using Gmail, use the native 'gmail' service configuration for maximum cloud compatibility
+  if (host.includes("gmail") || user.endsWith("@gmail.com")) {
+    return nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user,
+        pass,
+      },
+      tls: {
+        rejectUnauthorized: false,
+      },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
+    });
+  }
+
+  const port = Number(process.env.SMTP_PORT || 587);
+  const secure = process.env.SMTP_SECURE === "true" || port === 465;
 
   return nodemailer.createTransport({
     host,
@@ -27,14 +47,13 @@ const getTransporter = () => {
       user,
       pass,
     },
-    // Force IPv4 lookup for the SMTP connection
-    lookup: (hostname: string, options: any, callback: any) => {
-      dns.lookup(hostname, { ...options, family: 4 }, callback);
-    },
     tls: {
       rejectUnauthorized: false,
     },
-  } as any);
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
+  });
 };
 
 export const sendMail = async ({
