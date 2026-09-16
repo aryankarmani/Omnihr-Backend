@@ -228,29 +228,43 @@ export const getPendingApprovals = async (req: Request, res: Response) => {
             },
             include: {
                 user: {
-                    select: { name: true, employeeProfile: { select: { avatar: true } } }
+                    select: { 
+                        name: true, 
+                        employeeProfile: { select: { avatar: true } } 
+                    }
                 },
                 leaveType: {
                     select: { name: true }
                 }
             },
+            orderBy: {
+                createdAt: 'desc'
+            },
             take: 5
         });
 
-        const formatted = pendingLeaves.map(leave => ({
-            id: leave.id,
-            userName: leave.user.name,
-            type: leave.leaveType.name,
-            duration: Math.ceil((new Date(leave.endDate).getTime() - new Date(leave.startDate).getTime()) / (1000 * 3600 * 24)) + 1,
-            fromTime: leave.fromTime || null,
-            toTime: leave.toTime || null,
-            avatar: leave.user.employeeProfile?.avatar || null
-        }));
+        const formatted = pendingLeaves.map(leave => {
+            const start = leave.startDate ? new Date(leave.startDate).getTime() : 0;
+            const end = leave.endDate ? new Date(leave.endDate).getTime() : 0;
+            const duration = start && end 
+                ? Math.max(1, Math.ceil((end - start) / (1000 * 3600 * 24)) + 1)
+                : 1;
+
+            return {
+                id: leave.id,
+                userName: leave.user?.name || 'Employee',
+                type: leave.leaveType?.name || 'Leave',
+                duration,
+                fromTime: leave.fromTime || null,
+                toTime: leave.toTime || null,
+                avatar: leave.user?.employeeProfile?.avatar || null
+            };
+        });
 
         res.json(formatted);
-    } catch (error) {
+    } catch (error: any) {
         console.error('Error fetching pending approvals:', error);
-        res.status(500).json({ message: 'Internal server error' });
+        res.status(500).json({ message: 'Internal server error', details: error?.message });
     }
 };
 
@@ -286,15 +300,15 @@ export const getEmployeeOverview = async (req: Request, res: Response) => {
         });
 
         const formatted = employees.map(emp => ({
-            id: emp.user.id, // Use userId instead of profileId
-            name: emp.user.name,
+            id: emp.user?.id || emp.userId,
+            name: emp.user?.name || 'Employee',
             role: emp.title || 'Employee',
             status: emp.status
         }));
 
         res.json(formatted);
-    } catch (error) {
+    } catch (error: any) {
         console.error('Error fetching employee overview:', error);
-        res.status(500).json({ message: 'Internal server error' });
+        res.status(500).json({ message: 'Internal server error', details: error?.message });
     }
 };
