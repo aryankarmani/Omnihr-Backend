@@ -8,6 +8,7 @@ import {
   createEmployee, 
   getCurrentEmployee, 
   deleteEmployee,
+  bulkDeleteEmployees,
   updateProfilePicture,
   deleteProfilePicture
 } from '../controllers/employee.controller';
@@ -48,6 +49,9 @@ router.delete(
   deleteDocument
 );
 
+
+// Bulk delete route (placed before /:id)
+router.post('/bulk-delete', authenticate, authorize(["HR_ADMIN", "SYSTEM_ADMIN"]), bulkDeleteEmployees);
 
 router.get('/:id', authenticate, getEmployee);
 router.put('/:id', authenticate, updateEmployee);

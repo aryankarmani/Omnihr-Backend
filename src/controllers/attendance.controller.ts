@@ -273,17 +273,23 @@ export const getAttendanceHistory = async (req: AuthRequest, res: Response) => {
                 date: 'asc'
             }
         });
-        const formattedRecords = records.map((record) => ({
-            ...record,
-
-            // Mobile App
-            inTime: record.inTime,
-            outTime: record.outTime,
-
-            // Web App (Backward Compatibility)
-            clockIn: record.inTime,
-            clockOut: record.outTime,
-        }));
+        const formattedRecords = records.map((record) => {
+            let computedHours = record.hours;
+            if (computedHours == null && record.inTime && record.outTime) {
+                computedHours = parseFloat(
+                    ((new Date(record.outTime).getTime() - new Date(record.inTime).getTime()) / (1000 * 60 * 60)).toFixed(2)
+                );
+            }
+            return {
+                ...record,
+                hours: computedHours ?? 0,
+                totalHours: computedHours ?? 0,
+                inTime: record.inTime,
+                outTime: record.outTime,
+                clockIn: record.inTime,
+                clockOut: record.outTime,
+            };
+        });
 
         return res.json(formattedRecords);
 
