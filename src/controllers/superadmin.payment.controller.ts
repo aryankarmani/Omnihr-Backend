@@ -57,15 +57,43 @@ export const getAllPayments = async (req: Request, res: Response) => {
 
 export const recordManualPayment = async (req: Request, res: Response) => {
   try {
-    const { tenantId, subscriptionId, amount, currency, paymentMethod, transactionId, notes, paidAt, status } = req.body;
+    const { tenantId, companyName, subscriptionId, amount, currency, paymentMethod, transactionId, notes, paidAt, status } = req.body;
 
-    if (!tenantId || amount === undefined) {
-      return res.status(400).json({ message: "Company and Amount are required." });
+    if ((!tenantId && !companyName) || amount === undefined) {
+      return res.status(400).json({ message: "Company Name and Amount are required." });
+    }
+
+    let resolvedTenantId = tenantId;
+
+    if (!resolvedTenantId && companyName) {
+      const trimmedName = String(companyName).trim();
+      let tenant = await prisma.tenant.findFirst({
+        where: {
+          OR: [
+            { name: { equals: trimmedName, mode: "insensitive" } },
+            { domain: { equals: trimmedName.toLowerCase().replace(/[^a-z0-9]/g, ""), mode: "insensitive" } },
+          ],
+        },
+      });
+
+      if (!tenant) {
+        const cleanDomain = trimmedName.toLowerCase().replace(/[^a-z0-9]/g, "") || "company";
+        const uniqueDomain = `${cleanDomain}-${Date.now().toString().slice(-4)}`;
+        tenant = await prisma.tenant.create({
+          data: {
+            name: trimmedName,
+            domain: uniqueDomain,
+            plan: "STARTER",
+          },
+        });
+      }
+
+      resolvedTenantId = tenant.id;
     }
 
     const payment = await prisma.payment.create({
       data: {
-        tenantId,
+        tenantId: resolvedTenantId,
         subscriptionId: subscriptionId || null,
         amount: Number(amount),
         currency: currency || "INR",

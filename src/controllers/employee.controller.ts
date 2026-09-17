@@ -1242,6 +1242,73 @@ export const deleteEmployee = async (req: Request, res: Response) => {
     }
 };
 
+// Bulk Delete Employees
+export const bulkDeleteEmployees = async (req: Request, res: Response) => {
+    try {
+        const { ids } = req.body;
+        const tenantId = (req as any).user?.tenantId;
+
+        if (!tenantId) return res.status(401).json({ message: 'Unauthorized' });
+        if (!Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({ message: 'ids array is required' });
+        }
+
+        const userIds = ids.map((id: any) => Number(id)).filter((id: number) => !Number.isNaN(id));
+
+        await prisma.$transaction(async (tx) => {
+            await tx.user.updateMany({
+                where: {
+                    managerId: { in: userIds },
+                    tenantId,
+                },
+                data: { managerId: null },
+            });
+
+            await tx.employeeProfile.updateMany({
+                where: {
+                    userId: { in: userIds },
+                    tenantId,
+                },
+                data: {
+                    isActive: false,
+                    deletedAt: new Date(),
+                    status: 'Inactive',
+                },
+            });
+
+            await tx.user.updateMany({
+                where: {
+                    id: { in: userIds },
+                    tenantId,
+                },
+                data: {
+                    isActive: false,
+                    deletedAt: new Date(),
+                },
+            });
+        });
+
+        try {
+            await createAuditLog({
+                tenantId,
+                module: "Employee",
+                action: "Bulk Deleted",
+                description: `${userIds.length} employees were deleted/inactivated.`,
+                performedById: (req as any).user?.id,
+                performedBy: (req as any).user?.name || (req as any).user?.email || "Admin",
+                performedByRole: (req as any).user?.role,
+            });
+        } catch (auditErr) {
+            console.error('Audit log error on bulk delete:', auditErr);
+        }
+
+        res.json({ message: `${userIds.length} employees deleted successfully`, count: userIds.length });
+    } catch (error: any) {
+        console.error('Bulk delete error:', error);
+        res.status(500).json({ message: 'Server error', error: error?.message });
+    }
+};
+
 export const deleteDocument = async (req: Request, res: Response) => {
     try {
         const { id, docId } = req.params;
