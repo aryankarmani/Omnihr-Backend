@@ -99,7 +99,7 @@ export function calculateProfileCompletion(employee: any): ProfileCompletionResu
             tabKey: 'personal',
             weight: 10,
             check: () => {
-                const avatar = profile.avatar || profile.profilePicture || employee.avatar;
+                const avatar = profile.avatar || profile.profilePicture || profile.profilePictureUrl || employee.avatar || employee.profilePicture;
                 return !!(avatar && typeof avatar === 'string' && !avatar.startsWith('bg-'));
             }
         },
@@ -117,7 +117,7 @@ export function calculateProfileCompletion(employee: any): ProfileCompletionResu
             weight: 10,
             check: () => {
                 const basic = Number(salary.basic || 0);
-                const comps = Array.isArray(profile.salaryComponents) ? profile.salaryComponents.length : 0;
+                const comps = Array.isArray(profile.selectedSalaryComponents) ? profile.selectedSalaryComponents.length : (Array.isArray(profile.salaryComponents) ? profile.salaryComponents.length : 0);
                 return basic > 0 || comps > 0;
             }
         }
