@@ -394,6 +394,13 @@ export const applyRegularization = async (req: AuthRequest, res: Response) => {
         const targetDate = new Date(y, m - 1, d);
         targetDate.setHours(0, 0, 0, 0);
 
+        const dayOfWeek = targetDate.getDay();
+        if (dayOfWeek === 0 || dayOfWeek === 6) {
+            return res.status(400).json({
+                message: 'Cannot apply for regularization on weekends (Saturday / Sunday)',
+            });
+        }
+
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
