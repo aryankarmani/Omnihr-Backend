@@ -10,7 +10,8 @@ import {
   deleteEmployee,
   bulkDeleteEmployees,
   updateProfilePicture,
-  deleteProfilePicture
+  deleteProfilePicture,
+  checkEmployeeEmail
 } from '../controllers/employee.controller';
 import { authenticate, authorize } from '../middleware/auth'; // Assuming auth middleware exists
 import { upload } from '../middleware/upload';
@@ -18,6 +19,7 @@ import { upload } from '../middleware/upload';
 
 const router = Router();
 
+router.get('/check-email', authenticate, checkEmployeeEmail);
 router.get('/', authenticate, getAllEmployees);
 router.post('/', authenticate, upload.any(), createEmployee);
 

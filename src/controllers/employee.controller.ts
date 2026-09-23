@@ -69,15 +69,41 @@ const generateRandomPassword = () => {
         .join("");
 };
 
-// ✅ ADDED: Gets frontend URL from request origin, not .env
+// ✅ Live server portal URL for employee welcome emails
 const getFrontendLoginUrl = (req: Request) => {
-    const origin = req.headers.origin;
-
-    if (origin && origin.startsWith("http")) {
-        return `${origin}/login`;
+    if (process.env.FRONTEND_URL) {
+        return `${process.env.FRONTEND_URL.replace(/\/+$/, '')}/signin`;
     }
 
-    return "http://localhost:5173/login";
+    const origin = req.headers.origin;
+    if (origin && origin.startsWith("http") && !origin.includes("localhost")) {
+        return `${origin.replace(/\/+$/, '')}/signin`;
+    }
+
+    return "https://omnihr-frontend.vercel.app/signin";
+};
+
+// Check if an email is already used by any active account
+export const checkEmployeeEmail = async (req: Request, res: Response) => {
+    try {
+        const rawEmail = (req.query.email as string || '').toLowerCase().trim();
+        if (!rawEmail) {
+            return res.status(400).json({ message: 'Email query parameter is required' });
+        }
+
+        const existingUser = await prisma.user.findFirst({
+            where: {
+                email: { equals: rawEmail, mode: 'insensitive' },
+                deletedAt: null,
+            },
+            select: { id: true, email: true },
+        });
+
+        return res.json({ exists: !!existingUser });
+    } catch (error) {
+        console.error('Error checking employee email:', error);
+        return res.status(500).json({ message: 'Server error checking email' });
+    }
 };
 
 const employeeInclude = {
@@ -328,13 +354,18 @@ const profilePhotoPath = profilePhotoFile
             return res.status(400).json({ message: 'Name and email are required' });
         }
 
-        // Check if user already exists in this tenant
-        const existingUser = await prisma.user.findUnique({
-            where: { email_tenantId: { email, tenantId } }
+        const normalizedEmail = email.toLowerCase().trim();
+
+        // Check if user already exists anywhere in DB
+        const existingUser = await prisma.user.findFirst({
+            where: {
+                email: { equals: normalizedEmail, mode: 'insensitive' },
+                deletedAt: null,
+            }
         });
 
         if (existingUser) {
-            return res.status(400).json({ message: 'User already exists' });
+            return res.status(400).json({ message: 'This email is already in use. Please use a different email address.' });
         }
 
         // If no roleId provided, find the default 'EMPLOYEE' role
@@ -386,8 +417,8 @@ const profilePhotoPath = profilePhotoFile
             // 1. Create User
             const user = await tx.user.create({
                 data: {
-                    name,
-                    email,
+                    name: name.trim(),
+                    email: normalizedEmail,
                     password: hashedPassword, // Default password
                     tenantId,
                     roleId: finalRoleId,

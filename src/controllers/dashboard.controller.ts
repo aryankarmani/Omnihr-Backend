@@ -284,21 +284,97 @@ export const getEmployeeOverview = async (req: Request, res: Response) => {
                     select: {
                         id: true,
                         name: true,
+                        email: true,
                     },
                 },
             },
-            take: 5,
+            take: 8,
             orderBy: {
                 joiningDate: 'desc',
             },
         });
 
-        const formatted = employees.map(emp => ({
-            id: emp.user.id, // Use userId instead of profileId
-            name: emp.user.name,
-            role: emp.title || 'Employee',
-            status: emp.status
-        }));
+        const today = new Date();
+        const year = today.getFullYear();
+        const month = today.getMonth();
+        const firstDayOfMonth = new Date(year, month, 1);
+        const todayStr = getLocalDateString(today);
+        const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}`;
+
+        const userIds = employees.map(emp => emp.user.id);
+
+        const records = await prisma.attendanceRecord.findMany({
+            where: {
+                tenantId,
+                userId: { in: userIds },
+                date: {
+                    startsWith: monthPrefix,
+                    lte: todayStr,
+                },
+            },
+        });
+
+        const countWorkingDays = (start: Date, end: Date): number => {
+            let count = 0;
+            const cur = new Date(start);
+            cur.setHours(0, 0, 0, 0);
+            const target = new Date(end);
+            target.setHours(0, 0, 0, 0);
+
+            while (cur <= target) {
+                const dow = cur.getDay();
+                if (dow !== 0 && dow !== 6) {
+                    count++;
+                }
+                cur.setDate(cur.getDate() + 1);
+            }
+            return count;
+        };
+
+        const formatted = employees.map(emp => {
+            const empJoining = emp.joiningDate ? new Date(emp.joiningDate) : firstDayOfMonth;
+            let workingDays = 0;
+
+            if (empJoining > today) {
+                workingDays = 0;
+            } else {
+                const effectiveStart = empJoining > firstDayOfMonth ? empJoining : firstDayOfMonth;
+                workingDays = countWorkingDays(effectiveStart, today);
+            }
+
+            const userRecords = records.filter(r => r.userId === emp.user.id);
+            let attendedDays = 0;
+
+            for (const r of userRecords) {
+                const s = (r.status || '').toLowerCase();
+                if (s === 'present' || s === 'late') {
+                    attendedDays += 1;
+                } else if (s === 'half day' || s === 'half_day' || s === 'halfday') {
+                    attendedDays += 0.5;
+                }
+            }
+
+            let attendancePercentage = 0;
+            if (workingDays > 0) {
+                attendancePercentage = Math.min(100, Math.round((attendedDays / workingDays) * 100));
+            } else if (attendedDays > 0) {
+                attendancePercentage = 100;
+            } else {
+                attendancePercentage = 0;
+            }
+
+            return {
+                id: emp.user.id,
+                name: emp.user.name,
+                email: emp.user.email,
+                role: emp.title || 'Employee',
+                department: emp.department,
+                status: emp.status || 'Active',
+                attendancePercentage,
+                attendedDays,
+                workingDays,
+            };
+        });
 
         res.json(formatted);
     } catch (error) {

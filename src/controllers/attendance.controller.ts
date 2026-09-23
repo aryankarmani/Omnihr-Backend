@@ -316,27 +316,97 @@ export const getAttendanceStats = async (req: AuthRequest, res: Response) => {
 
         const datePrefix = `${year}-${String(month).padStart(2, '0')}`;
 
-        const records = await prisma.attendanceRecord.findMany({
-            where: {
-                userId,
-                date: {
-                    startsWith: datePrefix
+        const [records, user, holidays, approvedLeaves] = await Promise.all([
+            prisma.attendanceRecord.findMany({
+                where: {
+                    userId,
+                    date: {
+                        startsWith: datePrefix
+                    }
+                }
+            }),
+            prisma.user.findUnique({
+                where: { id: userId },
+                include: { employeeProfile: true }
+            }),
+            prisma.holiday.findMany({
+                where: { tenantId: loggedInUser.tenantId }
+            }),
+            prisma.leave.findMany({
+                where: {
+                    userId,
+                    status: 'APPROVED'
+                }
+            })
+        ]);
+
+        const joiningDate = user?.employeeProfile?.joiningDate || user?.createdAt;
+        const numYear = Number(year);
+        const numMonth = Number(month);
+        const daysInMonth = new Date(numYear, numMonth, 0).getDate();
+        const isCurrentMonth = now.getFullYear() === numYear && (now.getMonth() + 1) === numMonth;
+        const endDay = isCurrentMonth ? Math.min(now.getDate() - 1, daysInMonth) : daysInMonth;
+
+        let computedAbsentCount = 0;
+        if (!isCurrentMonth || now.getDate() > 1) {
+            for (let d = 1; d <= endDay; d++) {
+                const currentDay = new Date(numYear, numMonth - 1, d);
+                const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+
+                if (joiningDate) {
+                    const jdCopy = new Date(joiningDate);
+                    jdCopy.setHours(0, 0, 0, 0);
+                    if (currentDay < jdCopy) continue;
+                }
+
+                // Skip weekends (Saturday=6, Sunday=0)
+                if (currentDay.getDay() === 0 || currentDay.getDay() === 6) continue;
+
+                // Skip holidays
+                const isHoliday = holidays.some((h: any) => h.date.toISOString().split('T')[0] === dateStr);
+                if (isHoliday) continue;
+
+                // Skip approved leaves
+                const isLeaveApproved = approvedLeaves.some((l: any) => {
+                    const s = l.startDate.toISOString().split('T')[0];
+                    const e = l.endDate.toISOString().split('T')[0];
+                    return dateStr >= s && dateStr <= e;
+                });
+                if (isLeaveApproved) continue;
+
+                // Check attendance record
+                const rec = (records as any[]).find((r: any) => r.date === dateStr);
+                if (rec) {
+                    if (rec.status === 'Present' || rec.status === 'Late' || rec.status === 'Half Day') {
+                        continue;
+                    }
+                    if (rec.status === 'Absent') {
+                        computedAbsentCount++;
+                        continue;
+                    }
+                } else {
+                    computedAbsentCount++;
                 }
             }
-        });
+        }
+
+        const explicitAbsentRecords = (records as any[]).filter((r: any) => r.status === 'Absent').length;
 
         const stats = {
             present:
-                records.filter(r =>
+                (records as any[]).filter((r: any) =>
                     r.status === 'Present' ||
                     r.status === 'Late' ||
                     r.status === 'Half Day'
                 ).length,
-            absent: records.filter(r => r.status === 'Absent').length,
-            late: records.filter(r => r.status === 'Late').length,
-            halfDay: records.filter(r => r.status === 'Half Day').length,
-            holiday: records.filter(r => r.status === 'Holiday').length,
-            weekend: records.filter(r => r.status === 'Weekend').length,
+            absent: Math.max(explicitAbsentRecords, computedAbsentCount),
+            late: (records as any[]).filter((r: any) => r.status === 'Late').length,
+            halfDay: (records as any[]).filter((r: any) => r.status === 'Half Day').length,
+            holiday: holidays.filter((h: any) => {
+                const hd = new Date(h.date);
+                return hd.getFullYear() === numYear && (hd.getMonth() + 1) === numMonth;
+            }).length,
+            weekend: (records as any[]).filter((r: any) => r.status === 'Weekend').length,
         };
 
         res.json(stats);
