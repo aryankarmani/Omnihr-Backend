@@ -7,7 +7,9 @@ import {
         sendOtp,
         verifyOtp,
         resetPassword,
+        getMe,
 } from '../controllers/auth.controller';
+import { authenticate } from '../middleware/auth';
 
 const router = Router();
 
@@ -18,7 +20,8 @@ router.post('/login', login);
 // ✅ NEW: Frontend api.ts calls this route
 router.post("/refresh-token", refreshToken);
 
-
+// ✅ Current user profile & live permissions
+router.get("/me", authenticate, getMe);
 
 // ✅ NEW: Optional logout route
 router.post("/logout", logout);

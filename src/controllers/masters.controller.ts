@@ -306,11 +306,87 @@ export const updateAttendancePolicy = async (req: Request, res: Response) => {
 };
 
 // ACCESS CONTROL
+const STANDARD_PERMISSIONS = [
+    // 1. DASHBOARD
+    { name: "View Dashboard", code: "DASHBOARD_VIEW", module: "DASHBOARD", description: "View analytics overview and key metrics" },
+    { name: "Export Dashboard", code: "DASHBOARD_EXPORT", module: "DASHBOARD", description: "Export dashboard summary data and reports" },
+
+    // 2. ATTENDANCE (My Attendance)
+    { name: "View My Attendance", code: "ATTENDANCE_VIEW", module: "ATTENDANCE", description: "View self attendance logs, shifts & hours" },
+    { name: "Regularize Attendance", code: "ATTENDANCE_REGULARIZE", module: "ATTENDANCE", description: "Apply for attendance regularizations" },
+    { name: "Approve Attendance", code: "ATTENDANCE_APPROVE", module: "ATTENDANCE", description: "Approve attendance regularization requests" },
+
+    // 3. EMPLOYEE_ATTENDANCE
+    { name: "View Employee Attendance", code: "EMPLOYEE_ATTENDANCE_VIEW", module: "EMPLOYEE_ATTENDANCE", description: "View organizational and team member attendance records" },
+    { name: "Manage Employee Attendance", code: "EMPLOYEE_ATTENDANCE_MANAGE", module: "EMPLOYEE_ATTENDANCE", description: "Manual attendance override, shift assignments & approvals" },
+
+    // 4. EMPLOYEE (Employee List)
+    { name: "View Employees", code: "EMPLOYEE_VIEW", module: "EMPLOYEE", description: "View employee directory, profiles & employment info" },
+    { name: "Create Employee", code: "EMPLOYEE_CREATE", module: "EMPLOYEE", description: "Onboard and create new employee records" },
+    { name: "Update Employee", code: "EMPLOYEE_UPDATE", module: "EMPLOYEE", description: "Edit employee profiles, designations & details" },
+    { name: "Delete Employee", code: "EMPLOYEE_DELETE", module: "EMPLOYEE", description: "Deactivate or remove employee profiles" },
+
+    // 5. TEAM
+    { name: "View Team", code: "TEAM_VIEW", module: "TEAM", description: "View department teams, members & managers" },
+    { name: "Create Team", code: "TEAM_CREATE", module: "TEAM", description: "Create new teams and project groups" },
+    { name: "Update Team", code: "TEAM_UPDATE", module: "TEAM", description: "Assign managers, edit teams and restructure members" },
+    { name: "Manage Team Access Control", code: "TEAM_ACCESS_CONTROL", module: "TEAM", description: "Configure manager permissions and boundary controls" },
+
+    // 6. LEAVE
+    { name: "View Leave", code: "LEAVE_VIEW", module: "LEAVE", description: "View leave balances and leave requests" },
+    { name: "Apply Leave", code: "LEAVE_APPLY", module: "LEAVE", description: "Submit leave applications for self" },
+    { name: "Approve Leave", code: "LEAVE_APPROVE", module: "LEAVE", description: "Approve pending leave requests" },
+    { name: "Reject Leave", code: "LEAVE_REJECT", module: "LEAVE", description: "Reject leave requests with comments" },
+
+    // 7. PAYROLL
+    { name: "View Payroll", code: "PAYROLL_VIEW", module: "PAYROLL", description: "View payroll summaries and salary structures" },
+    { name: "Process Payroll", code: "PAYROLL_PROCESS", module: "PAYROLL", description: "Execute monthly payroll runs and statutory deductions" },
+    { name: "Download Payroll", code: "PAYROLL_DOWNLOAD", module: "PAYROLL", description: "Download payslips, tax sheets & bank export files" },
+
+    // 8. REPORTS
+    { name: "View Reports", code: "REPORTS_VIEW", module: "REPORTS", description: "Access standard HR and attendance reports" },
+    { name: "Export Reports", code: "REPORTS_EXPORT", module: "REPORTS", description: "Export custom analytics, Excel & PDF reports" },
+
+    // 9. MASTERS
+    { name: "View Masters", code: "MASTERS_VIEW", module: "MASTERS", description: "View organizational masters, policies & statutory settings" },
+    { name: "Manage Masters", code: "MASTERS_MANAGE", module: "MASTERS", description: "Configure companies, branches, designations & roles" },
+
+    // 10. TASK
+    { name: "View Tasks", code: "TASK_VIEW", module: "TASK", description: "View assigned tasks and project boards" },
+    { name: "Manage Tasks", code: "TASK_MANAGE", module: "TASK", description: "Create, assign, update and close tasks" },
+
+    // 11. MY_PROFILE
+    { name: "View My Profile", code: "MY_PROFILE_VIEW", module: "MY_PROFILE", description: "View self profile, documents and credentials" },
+    { name: "Edit My Profile", code: "MY_PROFILE_EDIT", module: "MY_PROFILE", description: "Update personal contact info, bank details & avatar" },
+];
+
 export const getPermissions = async (req: Request, res: Response) => {
     try {
-        const permissions = await prisma.permission.findMany();
+        let permissions = await prisma.permission.findMany({
+            orderBy: [
+                { module: "asc" },
+                { name: "asc" }
+            ]
+        });
+
+        // If permissions are missing, seed standard ones
+        if (permissions.length < STANDARD_PERMISSIONS.length) {
+            for (const p of STANDARD_PERMISSIONS) {
+                await prisma.permission.upsert({
+                    where: { code: p.code },
+                    update: { name: p.name, module: p.module, description: p.description },
+                    create: p,
+                });
+            }
+            permissions = await prisma.permission.findMany({
+                orderBy: [
+                    { module: "asc" },
+                    { name: "asc" }
+                ]
+            });
+        }
+
         res.json(permissions);
-    
     } catch (error) {
         console.error("Get permissions error:", error);
         res.status(500).json({ error: "Failed to fetch permissions" });
@@ -321,7 +397,6 @@ export const getRoles = async (req: Request, res: Response) => {
     try {
         const { tenantId } = req.user as any;
         const roles = await prisma.role.findMany({
-            
             where: {
                 tenantId,
                 NOT: {
@@ -331,7 +406,6 @@ export const getRoles = async (req: Request, res: Response) => {
             include: { permissions: true }
         });
         res.json(roles);
-  
     } catch (error) {
         console.error("Get roles error:", error);
         res.status(500).json({ error: "Failed to fetch roles" });
@@ -343,20 +417,49 @@ export const createRole = async (req: Request, res: Response) => {
         const { tenantId } = req.user as any;
         const { name, permissionIds = [], accessibleModules = "" } = req.body;
 
-        // ✅ CHANGED: Manager role should not be created from Masters
+        // ✅ Manager role should not be created from Masters
         if (String(name).trim().toUpperCase() === "MANAGER") {
             return res.status(400).json({
                 error: "MANAGER role is not allowed. Manager access is handled from Team Access Control.",
             });
         }
+
+        const normalizeModule = (m: any) => {
+            const s = String(m || "").trim().toUpperCase();
+            if (s === "EMPLOYEES" || s === "HR") return "EMPLOYEE";
+            if (s === "SETTINGS" || s === "ADMIN") return "MASTERS";
+            return s;
+        };
+
+        // Clean and normalize accessible modules
+        const moduleArray = Array.isArray(accessibleModules)
+            ? accessibleModules
+            : typeof accessibleModules === "string"
+                ? accessibleModules.split(",")
+                : [];
+        const cleanModules = Array.from(
+            new Set(moduleArray.map(normalizeModule).filter(Boolean))
+        );
+        const accessibleModulesStr = cleanModules.join(",");
+
+        // Validate permissions against enabled modules (only grant permissions for accessible modules)
+        let validPermissionIds: string[] = [];
+        if (Array.isArray(permissionIds) && permissionIds.length > 0) {
+            const requestedPermissions = await prisma.permission.findMany({
+                where: { id: { in: permissionIds } }
+            });
+            validPermissionIds = requestedPermissions
+                .filter(p => cleanModules.includes(p.module.toUpperCase()))
+                .map(p => p.id);
+        }
        
         const role = await prisma.role.create({
             data: {
-                name,
+                name: String(name).trim(),
                 tenantId,
-                accessibleModules: accessibleModules || "",
+                accessibleModules: accessibleModulesStr,
                 permissions: {
-                    connect: permissionIds.map((id: string) => ({ id }))
+                    connect: validPermissionIds.map((id: string) => ({ id }))
                 }
             },
             include: { permissions: true }
@@ -376,18 +479,43 @@ export const updateRole = async (req: Request, res: Response) => {
         const { id } = req.params;
         const { name, permissionIds = [], accessibleModules = "" } = req.body;
 
-        
+        const normalizeModule = (m: any) => {
+            const s = String(m || "").trim().toUpperCase();
+            if (s === "EMPLOYEES" || s === "HR") return "EMPLOYEE";
+            if (s === "SETTINGS" || s === "ADMIN") return "MASTERS";
+            return s;
+        };
 
-        // console.log("Update role body:", req.body);
+        // Clean and normalize accessible modules
+        const moduleArray = Array.isArray(accessibleModules)
+            ? accessibleModules
+            : typeof accessibleModules === "string"
+                ? accessibleModules.split(",")
+                : [];
+        const cleanModules = Array.from(
+            new Set(moduleArray.map(normalizeModule).filter(Boolean))
+        );
+        const accessibleModulesStr = cleanModules.join(",");
+
+        // Validate permissions against enabled modules (only grant permissions for accessible modules)
+        let validPermissionIds: string[] = [];
+        if (Array.isArray(permissionIds) && permissionIds.length > 0) {
+            const requestedPermissions = await prisma.permission.findMany({
+                where: { id: { in: permissionIds } }
+            });
+            validPermissionIds = requestedPermissions
+                .filter(p => cleanModules.includes(p.module.toUpperCase()))
+                .map(p => p.id);
+        }
 
         const role = await prisma.role.update({
             where: { id: Number(id) },
             data: {
-                name,
-                accessibleModules: accessibleModules || "",
+                name: String(name).trim(),
+                accessibleModules: accessibleModulesStr,
                 permissions: {
                     set: [],
-                    connect: permissionIds.map((pid: string) => ({ id: pid }))
+                    connect: validPermissionIds.map((pid: string) => ({ id: pid }))
                 }
             },
             include: { permissions: true }
@@ -533,6 +661,84 @@ export const createSalaryComponent = async (req: Request, res: Response) => {
   } catch (error: any) {
     return res.status(500).json({
       error: "Failed to create salary component",
+      details: error.message,
+    });
+  }
+};
+
+export const updateSalaryComponent = async (req: Request, res: Response) => {
+  try {
+    const { tenantId } = req.user as any;
+    const { id } = req.params;
+
+    const {
+      name,
+      type = "EARNING",
+      taxability = "TAXABLE",
+      isWageCodeComponent = false,
+      isPartOfWages = false,
+      isFBP = false,
+      calculationType = "FLAT",
+      value = 0,
+      prorationMethod = "CALENDAR_DAYS",
+    } = req.body;
+
+    // ✅ Basic validation
+    if (!name || String(name).trim() === "") {
+      return res.status(400).json({
+        error: "Component name is required",
+      });
+    }
+
+    const allowedTypes = ["EARNING", "DEDUCTION", "REIMBURSEMENT"];
+    const allowedTaxability = ["TAXABLE", "PARTIAL", "FULLY_EXEMPT"];
+    const allowedCalculationTypes = ["FLAT", "%_BASIC", "%_GROSS"];
+    const allowedProrationMethods = ["CALENDAR_DAYS", "FIXED_30", "WORKING_DAYS"];
+
+    if (!allowedTypes.includes(type)) {
+      return res.status(400).json({ error: "Invalid component type" });
+    }
+
+    if (!allowedTaxability.includes(taxability)) {
+      return res.status(400).json({ error: "Invalid taxability" });
+    }
+
+    if (!allowedCalculationTypes.includes(calculationType)) {
+      return res.status(400).json({ error: "Invalid calculation type" });
+    }
+
+    if (!allowedProrationMethods.includes(prorationMethod)) {
+      return res.status(400).json({ error: "Invalid proration method" });
+    }
+
+    // Check if it exists for the tenant
+    const existing = await prisma.salaryComponent.findFirst({
+      where: { id, tenantId }
+    });
+    if (!existing) {
+      return res.status(404).json({ error: "Salary component not found" });
+    }
+
+    const component = await prisma.salaryComponent.update({
+      where: { id },
+      data: {
+        name: String(name).trim(),
+        type,
+        taxability,
+        isTaxable: taxability !== "FULLY_EXEMPT",
+        isWageCodeComponent: Boolean(isWageCodeComponent),
+        isPartOfWages: Boolean(isPartOfWages),
+        isFBP: Boolean(isFBP),
+        calculationType,
+        value: Number(value || 0),
+        prorationMethod,
+      },
+    });
+
+    return res.json(component);
+  } catch (error: any) {
+    return res.status(500).json({
+      error: "Failed to update salary component",
       details: error.message,
     });
   }

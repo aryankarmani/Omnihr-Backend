@@ -8,6 +8,7 @@ import { sendMail, employeeWelcomeTemplate } from "../utils/mail";
 import { createAuditLog } from "../utils/auditLog";
 import fs from 'fs';
 import path from 'path';
+import { calculateProfileCompletion } from '../utils/profileCompletion';
 
 
 const prisma = new PrismaClient();
@@ -313,7 +314,12 @@ export const getAllEmployees = async (req: Request, res: Response) => {
         });
 
 
-        res.json(employees);
+        const employeesWithCompletion = employees.map(emp => ({
+            ...emp,
+            profileCompletion: calculateProfileCompletion(emp)
+        }));
+
+        res.json(employeesWithCompletion);
     } catch (error) {
         console.error('Error fetching employees:', error);
         res.status(500).json({ message: 'Server error' });
@@ -329,13 +335,13 @@ export const createEmployee = async (req: Request, res: Response) => {
         const data = typeof req.body.data === 'string' ? JSON.parse(req.body.data) : req.body;
         const uploadedFiles = req.files as Express.Multer.File[] | undefined;
 
-const profilePhotoFile = uploadedFiles?.find(
-    (file) => file.fieldname === "profilePhoto" || file.fieldname === "profilePicture"
-);
+        const profilePhotoFile = uploadedFiles?.find(
+            (file) => file.fieldname === "profilePhoto" || file.fieldname === "profilePicture"
+        );
 
-const profilePhotoPath = profilePhotoFile
-    ? `/uploads/${profilePhotoFile.filename}`
-    : null;
+        const profilePhotoPath = profilePhotoFile
+            ? `/uploads/${profilePhotoFile.filename}`
+            : null;
 
         const {
             name, email, password, phone, role, roleId,
@@ -427,35 +433,30 @@ const profilePhotoPath = profilePhotoFile
                 }
             });
 
-            // 2. Create Employee Profile
+            const profileData = {
+                phone,
+                department,
+                location,
+                title: title || 'Employee',
+                departmentId: finalDepartmentId,
+                designationId: finalDesignationId,
+                locationId: locationId || null,
+                shiftId: shiftId || null,
+                joiningDate: joiningDate ? new Date(joiningDate) : new Date(),
+                status: 'Active',
+                dob: dob ? new Date(dob) : null,
+                address: address || null,
+                bloodGroup: bloodGroup || null,
+                ...(profilePhotoPath ? { avatar: profilePhotoPath } : {}),
+                isActive: true,
+                deletedAt: null,
+            };
+
             const profile = await tx.employeeProfile.create({
                 data: {
                     userId: user.id,
                     tenantId,
-                    phone,
-
-                    department,
-                    location,
-                    title: title || 'Employee',
-
-                    departmentId: finalDepartmentId,
-                    designationId: finalDesignationId,
-
-                    locationId: locationId || null,
-                    shiftId: shiftId || null,
-                    joiningDate: joiningDate ? new Date(joiningDate) : new Date(),
-                    status: 'Active',
-
-                    // NEW UPDATE: Save DOB, Address and Blood Group
-                    dob: dob ? new Date(dob) : null,
-                    address: address || null,
-                    bloodGroup: bloodGroup || null,
-                    avatar: profilePhotoPath,
-
-                    isActive: true, // ✅ ADDED
-                    deletedAt: null,
-
-                    // NEW UPDATE: Create Salary Structure while onboarding
+                    ...profileData,
                     salary: {
                         create: salaryData,
                     },
@@ -484,6 +485,30 @@ const profilePhotoPath = profilePhotoFile
                 }
             });
 
+            // 5. Create Employee Salary Components if provided
+            const incomingSalaryComponents = data.selectedSalaryComponents || data.salaryComponents;
+            if (Array.isArray(incomingSalaryComponents) && incomingSalaryComponents.length > 0) {
+                const componentInserts = incomingSalaryComponents
+                    .map((comp: any) => {
+                        const componentId = comp.componentId || comp.id;
+                        if (!componentId) return null;
+                        return {
+                            tenantId,
+                            profileId: profile.id,
+                            componentId: String(componentId),
+                            amount: comp.amount !== undefined && comp.amount !== null ? Number(comp.amount) : null,
+                        };
+                    })
+                    .filter(Boolean);
+
+                if (componentInserts.length > 0) {
+                    await tx.employeeSalaryComponent.createMany({
+                        data: componentInserts as any[],
+                        skipDuplicates: true
+                    });
+                }
+            }
+
 
             // Parse flat req.files array into a fieldname mapping
             const filesArray = req.files as Express.Multer.File[] | undefined;
@@ -506,7 +531,7 @@ const profilePhotoPath = profilePhotoFile
                 const customFieldsMap: Record<string, any> = {};
                 cfMasters.forEach((cf) => {
                     const value = customFieldValues[cf.id] !== undefined ? String(customFieldValues[cf.id]) : null;
-                    
+
                     // Check if there is an uploaded file for this custom field
                     const fileArr = files[`custom-file-${cf.id}`];
                     const file = fileArr && fileArr[0];
@@ -550,6 +575,8 @@ const profilePhotoPath = profilePhotoFile
             }
 
             return user;
+        }, {
+            timeout: 30000 // 30 seconds
         });
 
         const fullEmployee = await prisma.user.findFirst({
@@ -669,6 +696,7 @@ export const getEmployee = async (req: Request, res: Response) => {
 
         res.json({
             ...employee,
+            profileCompletion: calculateProfileCompletion(employee),
 
             companySetting: {
                 authorizedSignName:
@@ -679,7 +707,7 @@ export const getEmployee = async (req: Request, res: Response) => {
 
                 authorizedSignature:
                     companySetting?.authorizedSignImage
-                        ? `/uploads/signatures/${companySetting.authorizedSignImage}`
+                        ? `/uploads/${companySetting.authorizedSignImage}`
                         : null,
             }
         });
@@ -819,7 +847,7 @@ export const updateEmployee = async (req: Request, res: Response) => {
                 designationId: finalDesignationId,
                 locationId: locationId || null,
                 shiftId: shiftId || null,
-                
+
                 isActive: true,
                 deletedAt: null,
 
@@ -914,6 +942,36 @@ export const updateEmployee = async (req: Request, res: Response) => {
             },
         });
 
+        // ✅ Sync Employee Salary Components if provided
+        const incomingSalaryComponents = req.body.selectedSalaryComponents || req.body.salaryComponents;
+        if (Array.isArray(incomingSalaryComponents)) {
+            await prisma.employeeSalaryComponent.deleteMany({
+                where: { profileId: updatedProfile.id, tenantId },
+            });
+
+            if (incomingSalaryComponents.length > 0) {
+                const componentInserts = incomingSalaryComponents
+                    .map((comp: any) => {
+                        const componentId = comp.componentId || comp.id;
+                        if (!componentId) return null;
+                        return {
+                            tenantId,
+                            profileId: updatedProfile.id,
+                            componentId: String(componentId),
+                            amount: comp.amount !== undefined && comp.amount !== null ? Number(comp.amount) : null,
+                        };
+                    })
+                    .filter(Boolean);
+
+                if (componentInserts.length > 0) {
+                    await prisma.employeeSalaryComponent.createMany({
+                        data: componentInserts as any[],
+                        skipDuplicates: true,
+                    });
+                }
+            }
+        }
+
         // ✅ Store salary month-wise only when salary changed
         if (
             salaryData &&
@@ -987,7 +1045,12 @@ export const updateEmployee = async (req: Request, res: Response) => {
             targetUserRole: role || "EMPLOYEE",
         });
 
-        return res.json(updatedProfile);
+        const fullUpdatedEmployee = await prisma.user.findFirst({
+            where: { id: userId, tenantId },
+            include: employeeInclude,
+        });
+
+        return res.json(fullUpdatedEmployee || updatedProfile);
     } catch (error: any) {
         console.error("Update employee error:", error);
         return res.status(500).json({
@@ -1166,21 +1229,21 @@ export const deleteEmployee = async (req: Request, res: Response) => {
         });
 
         await createAuditLog({
-    tenantId,
-    module: "Employee",
-    action: "Deleted",
+            tenantId,
+            module: "Employee",
+            action: "Deleted",
 
-    // ✅ FIXED: variable name is employee, not existingEmployee
-    description: `${employee.name} was deleted/inactivated.`,
+            // ✅ FIXED: variable name is employee, not existingEmployee
+            description: `${employee.name} was deleted/inactivated.`,
 
-    performedById: (req as any).user?.id,
-    performedBy: (req as any).user?.name || (req as any).user?.email || "Admin",
-    performedByRole: (req as any).user?.role,
+            performedById: (req as any).user?.id,
+            performedBy: (req as any).user?.name || (req as any).user?.email || "Admin",
+            performedByRole: (req as any).user?.role,
 
-    targetUserId: userId,
-    targetUser: employee.name,
-    targetUserRole: employee.role?.name || "EMPLOYEE",
-});
+            targetUserId: userId,
+            targetUser: employee.name,
+            targetUserRole: employee.role?.name || "EMPLOYEE",
+        });
 
         res.json({ message: 'Employee and all associated records deleted successfully' });
     } catch (error) {
@@ -1265,13 +1328,27 @@ export const deleteDocument = async (req: Request, res: Response) => {
             return res.status(401).json({ message: "Unauthorized" });
         }
 
-        // UPDATED: tenant-safe document lookup
+        const parsedDocId = Number(docId);
+        if (!parsedDocId || Number.isNaN(parsedDocId)) {
+            return res.status(400).json({ message: "Invalid document ID" });
+        }
+
+        const targetUserId = id === 'me' ? (req as any).user?.id : Number(id);
+
+        // Tenant-safe document lookup by document ID and matching employee user/profile
         const document = await prisma.document.findFirst({
             where: {
-                id: Number(docId),
+                id: parsedDocId,
                 profile: {
-                    userId: Number(id),
                     tenantId,
+                    ...(targetUserId && !Number.isNaN(targetUserId)
+                        ? {
+                            OR: [
+                                { userId: targetUserId },
+                                { id: targetUserId }
+                            ]
+                        }
+                        : {}),
                 },
             },
         });
@@ -1282,8 +1359,21 @@ export const deleteDocument = async (req: Request, res: Response) => {
             });
         }
 
+        // Delete physical file from disk if present
+        if (document.url) {
+            const cleanName = document.url.replace(/^(\/)?uploads\//, '');
+            const filePath = path.join(process.cwd(), 'uploads', cleanName);
+            if (fs.existsSync(filePath)) {
+                try {
+                    fs.unlinkSync(filePath);
+                } catch (err) {
+                    console.error("File unlink error:", err);
+                }
+            }
+        }
+
         await prisma.document.delete({
-            where: { id: Number(docId) },
+            where: { id: parsedDocId },
         });
 
         return res.json({ message: "Document deleted successfully" });
@@ -1349,7 +1439,10 @@ export const getCurrentEmployee = async (req: Request, res: Response) => {
             return res.status(404).json({ message: 'Employee profile not found' });
         }
 
-        res.json(employee);
+        res.json({
+            ...employee,
+            profileCompletion: calculateProfileCompletion(employee)
+        });
     } catch (error) {
         console.error('Error fetching current employee:', error);
         res.status(500).json({ message: 'Server error' });

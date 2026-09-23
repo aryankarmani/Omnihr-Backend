@@ -34,25 +34,60 @@ export const authenticateSuperAdmin = async (
       process.env.JWT_SECRET || "secret"
     ) as any;
 
-    // Strict validation: Must have role 'SUPER_ADMIN' and token type 'SUPER_ADMIN'
-    if (!decoded || decoded.role !== "SUPER_ADMIN" || decoded.type !== "SUPER_ADMIN") {
+    if (!decoded || (decoded.role !== "SUPER_ADMIN" && decoded.type !== "SUPER_ADMIN")) {
       return res.status(403).json({
         message: "Forbidden. This endpoint is strictly restricted to Super Administrators.",
       });
     }
 
-    // Verify admin exists and is active in database
-    const admin = await prisma.superAdmin.findUnique({
-      where: { id: decoded.id },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        isActive: true,
-        forcePasswordChange: true,
-      },
-    });
+    // Look up in SuperAdmin table by id or email
+    let admin: any = null;
+    if (typeof decoded.id === "string") {
+      admin = await prisma.superAdmin.findUnique({
+        where: { id: decoded.id },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          isActive: true,
+          forcePasswordChange: true,
+        },
+      });
+    }
+
+    if (!admin && decoded.email) {
+      admin = await prisma.superAdmin.findUnique({
+        where: { email: decoded.email.toLowerCase().trim() },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          isActive: true,
+          forcePasswordChange: true,
+        },
+      });
+    }
+
+    // Fallback if user is in User table with SUPER_ADMIN role
+    if (!admin && decoded.role === "SUPER_ADMIN" && decoded.id) {
+      const dbUser = await prisma.user.findFirst({
+        where: { id: Number(decoded.id), isActive: true, deletedAt: null },
+        include: { role: true },
+      });
+
+      if (dbUser && dbUser.role?.name === "SUPER_ADMIN") {
+        admin = {
+          id: String(dbUser.id),
+          email: dbUser.email,
+          name: dbUser.name,
+          role: "SUPER_ADMIN",
+          isActive: true,
+          forcePasswordChange: false,
+        };
+      }
+    }
 
     if (!admin || !admin.isActive) {
       return res.status(403).json({

@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
-import jwt  from "jsonwebtoken";
+import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { sendMail, otpTemplate } from "../utils/mail";
 
@@ -11,9 +11,9 @@ const ACCESS_TOKEN_EXPIRES_IN = "24h";
 const REFRESH_TOKEN_DAYS = 7;
 
 const createAccessToken = (user: any) => {
-     //const secret = process.env.JWT_SECRET || "secret";
+  //const secret = process.env.JWT_SECRET || "secret";
 
-  
+
   return jwt.sign(
     {
       id: user.id,
@@ -143,8 +143,8 @@ export const register = async (req: Request, res: Response) => {
 
 export const login = async (req: Request, res: Response) => {
   try {
-    
-    
+
+
     const email = req.body.email?.toLowerCase().trim();
     const password = req.body.password;
 
@@ -165,7 +165,7 @@ export const login = async (req: Request, res: Response) => {
         tenant: true,
       },
     });
-    
+
 
 
 
@@ -537,6 +537,60 @@ export const resetPassword = async (req: Request, res: Response) => {
     console.error("Reset password error:", error);
     return res.status(500).json({
       message: "Failed to reset password",
+      details: error.message,
+    });
+  }
+};
+
+// ✅ GET /auth/me: Returns current authenticated user with latest role & permissions
+export const getMe = async (req: any, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const tenantId = req.user?.tenantId;
+
+    if (!userId || !tenantId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const user = await prisma.user.findFirst({
+      where: {
+        id: userId,
+        tenantId,
+        isActive: true,
+        deletedAt: null,
+      },
+      include: {
+        role: {
+          include: {
+            permissions: true,
+          },
+        },
+        tenant: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    return res.json({
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: (user.role?.name || "EMPLOYEE").toUpperCase(),
+        tenantId: user.tenantId,
+        tenantName: user.tenant?.name,
+        accessibleModules: user.role?.accessibleModules
+          ? user.role.accessibleModules.split(",")
+          : [],
+        permissions: user.role?.permissions?.map((p) => p.code) || [],
+      },
+    });
+  } catch (error: any) {
+    console.error("getMe error:", error);
+    return res.status(500).json({
+      message: "Server error",
       details: error.message,
     });
   }

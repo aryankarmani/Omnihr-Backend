@@ -1,14 +1,60 @@
 import nodemailer from "nodemailer";
+import dotenv from "dotenv";
+import dns from "dns";
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: Number(process.env.SMTP_PORT || 587),
-  secure: process.env.SMTP_SECURE === "true",
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
+dotenv.config();
+
+// Force Node.js to prefer IPv4 over IPv6 for all DNS lookups.
+// Render's free tier doesn't support outbound IPv6, causing ENETUNREACH errors.
+dns.setDefaultResultOrder("ipv4first");
+
+const getTransporter = () => {
+  const user = process.env.SMTP_USER?.trim();
+  const rawPass = process.env.SMTP_PASS?.trim();
+  const pass = rawPass?.replace(/\s+/g, ""); // Remove spaces from Google App Password
+
+  if (!user || !pass) {
+    return null;
+  }
+
+  const host = (process.env.SMTP_HOST || "smtp.gmail.com").trim();
+
+  // If using Gmail, use the native 'gmail' service configuration for maximum cloud compatibility
+  if (host.includes("gmail") || user.endsWith("@gmail.com")) {
+    return nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user,
+        pass,
+      },
+      tls: {
+        rejectUnauthorized: false,
+      },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
+    });
+  }
+
+  const port = Number(process.env.SMTP_PORT || 587);
+  const secure = process.env.SMTP_SECURE === "true" || port === 465;
+
+  return nodemailer.createTransport({
+    host,
+    port,
+    secure,
+    auth: {
+      user,
+      pass,
+    },
+    tls: {
+      rejectUnauthorized: false,
+    },
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
+  });
+};
 
 export const sendMail = async ({
   to,
@@ -21,20 +67,98 @@ export const sendMail = async ({
   html?: string;
   text?: string;
 }) => {
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    console.log("SMTP not configured. Email skipped.");
+  // 1. If Brevo API Key is provided, send via Brevo HTTPS REST API (allows sending to ANY recipient email)
+  const brevoApiKey = process.env.BREVO_API_KEY?.trim();
+  if (brevoApiKey) {
+    try {
+      const senderEmail = (process.env.BREVO_SENDER_EMAIL || process.env.SMTP_USER || "aryankarmani2003@gmail.com").trim();
+      const senderName = process.env.BREVO_SENDER_NAME || "OmniHR";
+      const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+        method: "POST",
+        headers: {
+          "api-key": brevoApiKey,
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+        body: JSON.stringify({
+          sender: { name: senderName, email: senderEmail },
+          to: [{ email: to }],
+          subject: subject,
+          htmlContent: html,
+          textContent: text,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || `Brevo API error: ${response.statusText}`);
+      }
+
+      console.log(`✅ Email sent successfully to ${to} via Brevo HTTP API`);
+      return data;
+    } catch (err) {
+      console.error(`❌ Brevo HTTP error when sending email to ${to}:`, err);
+      throw err;
+    }
+  }
+
+  // 2. If Resend API Key is provided, send via HTTPS
+  const resendApiKey = process.env.RESEND_API_KEY?.trim();
+  if (resendApiKey) {
+    try {
+      const fromEmail = process.env.RESEND_FROM || "OmniHR <onboarding@resend.dev>";
+      const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${resendApiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: fromEmail,
+          to: [to],
+          subject: subject,
+          html: html,
+          text: text,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || `Resend API error: ${response.statusText}`);
+      }
+
+      console.log(`✅ Email sent successfully to ${to} via Resend HTTP API`);
+      return data;
+    } catch (err) {
+      console.error(`❌ Resend HTTP error when sending email to ${to}:`, err);
+      throw err;
+    }
+  }
+
+  // 2. Fallback to Nodemailer SMTP (for local development)
+  const transporter = getTransporter();
+
+  if (!transporter) {
+    console.log("⚠️ Email not configured (RESEND_API_KEY or SMTP_USER missing). Email skipped.");
     return;
   }
 
   const sender = process.env.SMTP_FROM || `OmniHR <${process.env.SMTP_USER}>`;
 
-  await transporter.sendMail({
-    from: sender,
-    to,
-    subject,
-    html,
-    text,
-  });
+  try {
+    const info = await transporter.sendMail({
+      from: (process.env.SMTP_FROM || process.env.SMTP_USER || "").trim(),
+      to,
+      subject,
+      html,
+      text,
+    });
+    console.log(`✅ Email sent successfully to ${to} via SMTP`);
+    return info;
+  } catch (error) {
+    console.error(`❌ Failed to send email to ${to} via SMTP:`, error);
+    throw error;
+  }
 };
 
 // ============================================================

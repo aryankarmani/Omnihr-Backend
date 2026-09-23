@@ -211,6 +211,8 @@ model Leave {
   reason          String
   startDate       DateTime
   endDate         DateTime
+  fromTime        String?
+  toTime          String?
   status          String   @default("PENDING")
   rejectionReason String?
 
@@ -1003,4 +1005,3 @@ model DemoRequest {
   @@index([status])
   @@index([createdAt])
 }
-

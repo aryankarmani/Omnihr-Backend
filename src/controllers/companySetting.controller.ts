@@ -7,9 +7,18 @@ const prisma = new PrismaClient();
 
 
 const getSignatureUrl = (filename?: string | null) => {
-  if (!filename) return null;
-   return `/uploads/${filename}`;
-
+  if (!filename || !filename.trim()) return null;
+  const cleanName = filename.trim();
+  if (
+    cleanName.startsWith("http://") ||
+    cleanName.startsWith("https://") ||
+    cleanName.startsWith("data:") ||
+    cleanName.startsWith("blob:")
+  ) {
+    return cleanName;
+  }
+  const baseName = cleanName.replace(/^\/?uploads\//, "");
+  return `/uploads/${baseName}`;
 };
 
 

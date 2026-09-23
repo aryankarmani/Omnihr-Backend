@@ -234,7 +234,10 @@ export const getPendingApprovals = async (req: Request, res: Response) => {
             },
             include: {
                 user: {
-                    select: { name: true, employeeProfile: { select: { avatar: true } } }
+                    select: {
+                        name: true,
+                        employeeProfile: { select: { avatar: true } }
+                    }
                 },
                 leaveType: {
                     select: { name: true }
@@ -256,9 +259,9 @@ export const getPendingApprovals = async (req: Request, res: Response) => {
         }));
 
         res.json(formatted);
-    } catch (error) {
+    } catch (error: any) {
         console.error('Error fetching pending approvals:', error);
-        res.status(500).json({ message: 'Internal server error' });
+        res.status(500).json({ message: 'Internal server error', details: error?.message });
     }
 };
 
@@ -377,8 +380,8 @@ export const getEmployeeOverview = async (req: Request, res: Response) => {
         });
 
         res.json(formatted);
-    } catch (error) {
+    } catch (error: any) {
         console.error('Error fetching employee overview:', error);
-        res.status(500).json({ message: 'Internal server error' });
+        res.status(500).json({ message: 'Internal server error', details: error?.message });
     }
 };
