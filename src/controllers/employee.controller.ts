@@ -70,15 +70,41 @@ const generateRandomPassword = () => {
         .join("");
 };
 
-// ✅ ADDED: Gets frontend URL from request origin, not .env
+// ✅ Live server portal URL for employee welcome emails
 const getFrontendLoginUrl = (req: Request) => {
-    const origin = req.headers.origin;
-
-    if (origin && origin.startsWith("http")) {
-        return `${origin}/login`;
+    if (process.env.FRONTEND_URL) {
+        return `${process.env.FRONTEND_URL.replace(/\/+$/, '')}/signin`;
     }
 
-    return "http://localhost:3001/login";
+    const origin = req.headers.origin;
+    if (origin && origin.startsWith("http") && !origin.includes("localhost")) {
+        return `${origin.replace(/\/+$/, '')}/signin`;
+    }
+
+    return "https://omnihr-frontend.vercel.app/signin";
+};
+
+// Check if an email is already used by any active account
+export const checkEmployeeEmail = async (req: Request, res: Response) => {
+    try {
+        const rawEmail = (req.query.email as string || '').toLowerCase().trim();
+        if (!rawEmail) {
+            return res.status(400).json({ message: 'Email query parameter is required' });
+        }
+
+        const existingUser = await prisma.user.findFirst({
+            where: {
+                email: { equals: rawEmail, mode: 'insensitive' },
+                deletedAt: null,
+            },
+            select: { id: true, email: true },
+        });
+
+        return res.json({ exists: !!existingUser });
+    } catch (error) {
+        console.error('Error checking employee email:', error);
+        return res.status(500).json({ message: 'Server error checking email' });
+    }
 };
 
 const employeeInclude = {
@@ -334,13 +360,18 @@ export const createEmployee = async (req: Request, res: Response) => {
             return res.status(400).json({ message: 'Name and email are required' });
         }
 
-        // Check if user already exists in this tenant
-        const existingUser = await prisma.user.findUnique({
-            where: { email_tenantId: { email, tenantId } }
+        const normalizedEmail = email.toLowerCase().trim();
+
+        // Check if user already exists anywhere in DB
+        const existingUser = await prisma.user.findFirst({
+            where: {
+                email: { equals: normalizedEmail, mode: 'insensitive' },
+                deletedAt: null,
+            }
         });
 
-        if (existingUser && existingUser.isActive && !existingUser.deletedAt) {
-            return res.status(400).json({ message: 'User already exists' });
+        if (existingUser) {
+            return res.status(400).json({ message: 'This email is already in use. Please use a different email address.' });
         }
 
         // If no roleId provided, find the default 'EMPLOYEE' role
@@ -389,33 +420,17 @@ export const createEmployee = async (req: Request, res: Response) => {
             // ✅ CHANGED: Always generate random password for every employee
             const hashedPassword = await bcrypt.hash(plainPassword, 10);
 
-            // 1. Create or Reactivate User
-            const user = existingUser
-                ? await tx.user.update({
-                    where: { id: existingUser.id },
-                    data: {
-                        name,
-                        password: hashedPassword,
-                        roleId: finalRoleId,
-                        isActive: true,
-                        deletedAt: null,
-                    }
-                })
-                : await tx.user.create({
-                    data: {
-                        name,
-                        email,
-                        password: hashedPassword,
-                        tenantId,
-                        roleId: finalRoleId,
-                        isActive: true,
-                        deletedAt: null,
-                    }
-                });
-
-            // 2. Create or Update Employee Profile
-            const existingProfile = await tx.employeeProfile.findFirst({
-                where: { userId: user.id, tenantId }
+            // 1. Create User
+            const user = await tx.user.create({
+                data: {
+                    name: name.trim(),
+                    email: normalizedEmail,
+                    password: hashedPassword, // Default password
+                    tenantId,
+                    roleId: finalRoleId,
+                    isActive: true, // ✅ ADDED: ensure login query can find user
+                    deletedAt: null,
+                }
             });
 
             const profileData = {
@@ -437,21 +452,16 @@ export const createEmployee = async (req: Request, res: Response) => {
                 deletedAt: null,
             };
 
-            const profile = existingProfile
-                ? await tx.employeeProfile.update({
-                    where: { id: existingProfile.id },
-                    data: profileData,
-                })
-                : await tx.employeeProfile.create({
-                    data: {
-                        userId: user.id,
-                        tenantId,
-                        ...profileData,
-                        salary: {
-                            create: salaryData,
-                        },
+            const profile = await tx.employeeProfile.create({
+                data: {
+                    userId: user.id,
+                    tenantId,
+                    ...profileData,
+                    salary: {
+                        create: salaryData,
                     },
-                });
+                },
+            });
 
             // 3. Create Statutory Details
             await tx.statutoryDetails.create({
