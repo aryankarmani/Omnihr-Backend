@@ -152,21 +152,26 @@ const getOrCreateRoleId = async (
     roleId?: any,
     roleName?: any
 ) => {
-    if (roleId) return Number(roleId);
+    if (roleId && !isNaN(Number(roleId)) && Number(roleId) > 0) {
+        const existing = await prisma.role.findFirst({
+            where: { id: Number(roleId), tenantId },
+        });
+        if (existing) return existing.id;
+    }
 
     const cleanRoleName =
-        typeof roleName === "string" ? roleName.trim().toUpperCase() : "";
+        typeof roleName === "string" ? roleName.trim() : "";
 
-    // ✅ CHANGED: If frontend sends MANAGER, ignore it and use EMPLOYEE
+    // If frontend sends MANAGER, ignore it and use EMPLOYEE
     const safeRoleName =
-        cleanRoleName === "MANAGER" || !cleanRoleName
+        cleanRoleName.toUpperCase() === "MANAGER" || !cleanRoleName
             ? "EMPLOYEE"
             : cleanRoleName;
 
     const role = await prisma.role.findFirst({
         where: {
             tenantId,
-            name: safeRoleName,
+            name: { equals: safeRoleName, mode: "insensitive" },
         },
     });
 
@@ -175,11 +180,22 @@ const getOrCreateRoleId = async (
     const defaultRole = await prisma.role.findFirst({
         where: {
             tenantId,
-            name: 'EMPLOYEE',
+            name: { equals: "EMPLOYEE", mode: "insensitive" },
         },
     });
 
-    return defaultRole?.id || null;
+    if (defaultRole) return defaultRole.id;
+
+    // Auto-create EMPLOYEE role for this tenant if none exists
+    const createdRole = await prisma.role.create({
+        data: {
+            name: "EMPLOYEE",
+            tenantId,
+            accessibleModules: "DASHBOARD,ATTENDANCE,LEAVE,MY_PROFILE",
+        },
+    });
+
+    return createdRole.id;
 };
 
 // UPDATED: get or create default company
