@@ -428,6 +428,7 @@ export const createRole = async (req: Request, res: Response) => {
             const s = String(m || "").trim().toUpperCase();
             if (s === "EMPLOYEES" || s === "HR") return "EMPLOYEE";
             if (s === "SETTINGS" || s === "ADMIN") return "MASTERS";
+            if (s === "TASK" || s === "TASKS" || s === "LOGS") return "LOG";
             return s;
         };
 
@@ -483,6 +484,7 @@ export const updateRole = async (req: Request, res: Response) => {
             const s = String(m || "").trim().toUpperCase();
             if (s === "EMPLOYEES" || s === "HR") return "EMPLOYEE";
             if (s === "SETTINGS" || s === "ADMIN") return "MASTERS";
+            if (s === "TASK" || s === "TASKS" || s === "LOGS") return "LOG";
             return s;
         };
 
