@@ -183,6 +183,8 @@ const getReportRange = (periodQuery: any) => {
     // Current month (monthly)
     firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
     firstDay.setHours(0, 0, 0, 0);
+    lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    lastDay.setHours(23, 59, 59, 999);
   }
 
   return {
@@ -190,6 +192,7 @@ const getReportRange = (periodQuery: any) => {
     startDate: formatLocalDate(firstDay),
     endDate: formatLocalDate(lastDay),
     firstDay,
+    lastDay,
     today: lastDay,
   };
 };
@@ -378,15 +381,11 @@ export const getDashboard = async (
         ? Math.round((presentCount / expectedAttendance) * 100)
         : 0;
 
-    // Filter pending leaves within the period
+    // Pending leaves currently awaiting approval
     const pendingLeaves = await prisma.leave.count({
       where: {
         tenantId,
         status: "PENDING",
-        startDate: {
-          gte: firstDay,
-          lte: today,
-        },
       },
     });
 
@@ -885,14 +884,14 @@ export const exportLeaveBalance = async (
 
 
 
-    const { firstDay, today } = getReportRange(req.query.period);
+    const { firstDay, lastDay } = getReportRange(req.query.period);
 
     const leaves = await prisma.leave.findMany({
       where: {
         tenantId,
         startDate: {
           gte: firstDay,
-          lte: today,
+          lte: lastDay,
         },
       },
       include: {
