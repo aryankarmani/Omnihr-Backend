@@ -844,6 +844,21 @@ export const updateEmployee = async (req: Request, res: Response) => {
             }
             : null;
 
+        let cleanPhone: string | null = null;
+        if (phone && typeof phone === 'string') {
+            let digits = phone.trim();
+            while (digits.startsWith('+91')) {
+                digits = digits.slice(3).trim();
+            }
+            digits = digits.replace(/\+91/g, '').replace(/\D/g, '');
+            if (digits.length === 12 && digits.startsWith('91')) {
+                digits = digits.slice(2);
+            }
+            if (digits.length === 10) {
+                cleanPhone = `+91 ${digits}`;
+            }
+        }
+
         const updatedProfile = await prisma.employeeProfile.upsert({
             where: { userId },
 
@@ -853,7 +868,7 @@ export const updateEmployee = async (req: Request, res: Response) => {
                 title: title || "Employee",
                 department: department || null,
                 location: location || null,
-                phone: phone || null,
+                phone: cleanPhone,
                 status: status || "Active",
                 dob: dob ? new Date(dob) : null,
                 joiningDate: joiningDate ? new Date(joiningDate) : new Date(),
@@ -896,7 +911,7 @@ export const updateEmployee = async (req: Request, res: Response) => {
                 title: title || "Employee",
                 department: department || null,
                 location: location || null,
-                phone: phone || null,
+                phone: cleanPhone,
                 status: status || "Active",
                 dob: dob ? new Date(dob) : null,
 
