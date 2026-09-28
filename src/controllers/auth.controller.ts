@@ -163,6 +163,7 @@ export const login = async (req: Request, res: Response) => {
       include: {
         role: true,
         tenant: true,
+        employeeProfile: true,
       },
     });
 
@@ -223,6 +224,8 @@ export const login = async (req: Request, res: Response) => {
           accessibleModules: user.role?.accessibleModules
             ? user.role.accessibleModules.split(",")
             : [],
+          avatar: user.employeeProfile?.avatar || null,
+          profilePicture: user.employeeProfile?.avatar || null,
         },
       });
     }
@@ -566,6 +569,7 @@ export const getMe = async (req: any, res: Response) => {
           },
         },
         tenant: true,
+        employeeProfile: true,
       },
     });
 
@@ -585,6 +589,8 @@ export const getMe = async (req: any, res: Response) => {
           ? user.role.accessibleModules.split(",")
           : [],
         permissions: user.role?.permissions?.map((p) => p.code) || [],
+        avatar: user.employeeProfile?.avatar || null,
+        profilePicture: user.employeeProfile?.avatar || null,
       },
     });
   } catch (error: any) {
