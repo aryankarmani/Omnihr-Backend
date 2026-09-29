@@ -13,7 +13,7 @@ router.post('/company', MastersController.updateCompany);
 // Locations
 router.get('/locations', MastersController.getAll('location'));
 router.post('/locations', MastersController.createLocation);
-router.put('/locations/:id', MastersController.update('location'));
+router.put('/locations/:id', MastersController.updateLocation);
 router.delete('/locations/:id', MastersController.remove('location'));
 
 // Departments

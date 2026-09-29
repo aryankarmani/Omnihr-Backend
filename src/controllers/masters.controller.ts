@@ -12,11 +12,12 @@ export const getAll = (model: string) => async (req: Request, res: Response) => 
             where: { tenantId }
         });
 
-        // ✅ UPDATED: convert title to name for frontend
+        // ✅ UPDATED: convert title to name for frontend and preserve reportTo
         if (model === 'designation') {
             data = data.map((item: any) => ({
                 ...item,
                 name: item.title,
+                reportTo: item.reportTo || null,
             }));
         }
         res.json(data);
@@ -43,6 +44,29 @@ export const createHoliday = async (req: Request, res: Response) => {
         if (!name || !date) {
             return res.status(400).json({
                 error: "Holiday name and date are required",
+            });
+        }
+
+        // Duplicate check for Holiday on same date for tenant
+        const targetDate = new Date(date);
+        const startOfDay = new Date(targetDate);
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(targetDate);
+        endOfDay.setHours(23, 59, 59, 999);
+
+        const existingHoliday = await prisma.holiday.findFirst({
+            where: {
+                tenantId,
+                date: {
+                    gte: startOfDay,
+                    lte: endOfDay,
+                }
+            }
+        });
+
+        if (existingHoliday) {
+            return res.status(409).json({
+                error: `A holiday is already scheduled on this date (${existingHoliday.name}).`,
             });
         }
 
@@ -78,15 +102,72 @@ export const create = (model: string) => async (req: Request, res: Response) => 
     try {
         const { tenantId } = req.user as any;
 
-        // FIX: frontend sends name, but Designation schema needs title
+        // FIX: duplicate protection for shift
+        if (model === 'shift') {
+            const { name, startTime, endTime } = req.body;
+            const duplicateShift = await prisma.shift.findFirst({
+                where: {
+                    tenantId,
+                    OR: [
+                        { startTime, endTime },
+                        ...(name?.trim() ? [{ name: name.trim() }] : [])
+                    ]
+                }
+            });
+
+            if (duplicateShift) {
+                return res.status(409).json({
+                    error: `A shift with this time (${startTime} - ${endTime})${name ? ` or name "${name}"` : ''} already exists.`
+                });
+            }
+        }
+
+        // FIX: frontend sends name, but Designation schema needs title, and preserve reportTo
         if (model === 'designation') {
             if (req.body.name && !req.body.title) {
                 req.body.title = req.body.name;
             }
 
             delete req.body.name;
-            delete req.body.reportTo;
+            if (req.body.reportTo !== undefined) {
+                req.body.reportTo = req.body.reportTo?.trim() || null;
+            }
+
+            if (!req.body.companyId) {
+                const comp = await prisma.company.findFirst({ where: { tenantId } });
+                if (comp) req.body.companyId = comp.id;
+            }
+
+            if (req.body.title) {
+                const existingDesig = await prisma.designation.findFirst({
+                    where: {
+                        tenantId,
+                        title: { equals: req.body.title, mode: 'insensitive' }
+                    }
+                });
+                if (existingDesig) {
+                    return res.status(409).json({
+                        error: `Designation "${req.body.title}" already exists.`
+                    });
+                }
+            }
         }
+
+        // FIX: duplicate protection for department
+        if (model === 'department' && req.body.name) {
+            const existingDept = await prisma.department.findFirst({
+                where: {
+                    tenantId,
+                    name: { equals: req.body.name, mode: 'insensitive' }
+                }
+            });
+            if (existingDept) {
+                return res.status(409).json({
+                    error: `Department "${req.body.name}" already exists.`
+                });
+            }
+        }
+
         // @ts-ignore
         const data = await prisma[model].create({
             data: { ...req.body, tenantId }
@@ -118,7 +199,10 @@ export const update = (model: string) => async (req: Request, res: Response) => 
             }
 
             delete req.body.name;
-            delete req.body.reportTo;
+            if (req.body.reportTo !== undefined) {
+                req.body.reportTo = req.body.reportTo?.trim() || null;
+            }
+            delete req.body.companyId;
         }
 
         // @ts-ignore
@@ -136,6 +220,7 @@ export const update = (model: string) => async (req: Request, res: Response) => 
             return res.json({
                 ...updated,
                 name: updated.title,
+                reportTo: updated.reportTo || null,
             });
         }
 
@@ -225,19 +310,101 @@ export const updateCompany = async (req: Request, res: Response) => {
 export const createLocation = async (req: Request, res: Response) => {
     try {
         const { tenantId } = req.user as any;
-        const { companyId, ...data } = req.body;
-        // Ensure company belongs to tenant
-        const company = await prisma.company.findFirst({ where: { id: companyId, tenantId } });
-        if (!company) return res.status(404).json({ error: "Company not found" });
+        const { companyId, name, address, city, state, country, pincode, shopEstLicense, license, ptState } = req.body;
+
+        if (!name || !name.trim()) {
+            return res.status(400).json({ error: "Branch name is required" });
+        }
+
+        // Ensure company belongs to tenant or fallback to tenant's first company
+        let targetCompanyId = companyId;
+        let company = null;
+        if (targetCompanyId) {
+            company = await prisma.company.findFirst({ where: { id: targetCompanyId, tenantId } });
+        }
+        if (!company) {
+            company = await prisma.company.findFirst({ where: { tenantId } });
+            if (company) {
+                targetCompanyId = company.id;
+            } else {
+                // Auto-create default company if none exists
+                const newCompany = await prisma.company.create({
+                    data: {
+                        tenantId,
+                        legalName: 'My Company'
+                    }
+                });
+                targetCompanyId = newCompany.id;
+            }
+        }
+
+        // Duplicate branch name check
+        const trimmedName = name.trim();
+        const existingLoc = await prisma.location.findFirst({
+            where: {
+                tenantId,
+                name: { equals: trimmedName, mode: 'insensitive' }
+            }
+        });
+        if (existingLoc) {
+            return res.status(409).json({
+                error: `A location branch named "${trimmedName}" already exists.`
+            });
+        }
 
         const location = await prisma.location.create({
-            data: { ...data, companyId, tenantId }
+            data: {
+                name: trimmedName,
+                address: (address || '').trim(),
+                city: (city || '').trim(),
+                state: (state || '').trim(),
+                country: (country || 'India').trim(),
+                pincode: (pincode || '000000').trim(),
+                shopEstLicense: shopEstLicense?.trim() || license?.trim() || null,
+                ptState: ptState?.trim() || null,
+                companyId: targetCompanyId,
+                tenantId
+            }
         });
         res.json(location);
-    }  catch (error: any) {
-        res.status(500).json({ error: "Failed to create location", details: error.message, });
+    } catch (error: any) {
+        console.error("createLocation error:", error);
+        res.status(500).json({ error: "Failed to create location", details: error.message });
     }
-}
+};
+
+export const updateLocation = async (req: Request, res: Response) => {
+    try {
+        const { tenantId } = req.user as any;
+        const { id } = req.params;
+        const { name, address, city, state, country, pincode, shopEstLicense, license, ptState } = req.body;
+
+        const updateData: any = {};
+        if (name !== undefined) updateData.name = name.trim();
+        if (address !== undefined) updateData.address = address.trim();
+        if (city !== undefined) updateData.city = city.trim();
+        if (state !== undefined) updateData.state = state.trim();
+        if (country !== undefined) updateData.country = country.trim();
+        if (pincode !== undefined) updateData.pincode = pincode.trim();
+        if (shopEstLicense !== undefined || license !== undefined) {
+            updateData.shopEstLicense = shopEstLicense?.trim() || license?.trim() || null;
+        }
+        if (ptState !== undefined) updateData.ptState = ptState?.trim() || null;
+
+        await prisma.location.updateMany({
+            where: { id, tenantId },
+            data: updateData
+        });
+
+        const updated = await prisma.location.findFirst({
+            where: { id, tenantId }
+        });
+        res.json(updated);
+    } catch (error: any) {
+        console.error("updateLocation error:", error);
+        res.status(500).json({ error: "Failed to update location", details: error.message });
+    }
+};
 
 export const createDepartment = async (req: Request, res: Response) => {
     try {

@@ -30,12 +30,15 @@ export const createOrder = async (req: Request, res: Response) => {
     }
 
     // Fetch the plan from DB — by ID or by name
+    const resolvedName =
+      planName?.toLowerCase() === "professional" ? "Growth" : planName;
+
     let plan;
     if (planId) {
       plan = await prisma.subscriptionPlan.findUnique({ where: { id: planId } });
     } else {
       plan = await prisma.subscriptionPlan.findFirst({
-        where: { name: { equals: planName } },
+        where: { name: { equals: resolvedName, mode: "insensitive" } },
       });
     }
 
@@ -51,7 +54,12 @@ export const createOrder = async (req: Request, res: Response) => {
     if (cycle === "YEARLY") {
       price = plan.yearlyPrice;
     } else if (cycle === "QUARTERLY") {
-      price = plan.name === "Starter" ? 12000 : plan.name === "Growth" ? 15000 : plan.monthlyPrice * 3;
+      price =
+        plan.name.toLowerCase() === "starter"
+          ? 6747
+          : plan.name.toLowerCase() === "growth"
+          ? 18897
+          : Math.round(plan.monthlyPrice * 3 * 0.9);
     }
     const amount = Math.round(price * 100);
 
@@ -143,12 +151,15 @@ export const verifyAndOnboard = async (req: Request, res: Response) => {
     }
 
     // --- Step 3: Fetch the plan (by ID or name) ---
+    const resolvedName =
+      planName?.toLowerCase() === "professional" ? "Growth" : planName;
+
     let plan;
     if (planId) {
       plan = await prisma.subscriptionPlan.findUnique({ where: { id: planId } });
     } else {
       plan = await prisma.subscriptionPlan.findFirst({
-        where: { name: { equals: planName } },
+        where: { name: { equals: resolvedName, mode: "insensitive" } },
       });
     }
 
@@ -185,7 +196,12 @@ export const verifyAndOnboard = async (req: Request, res: Response) => {
     if (cycle === "YEARLY") {
       amount = plan.yearlyPrice;
     } else if (cycle === "QUARTERLY") {
-      amount = plan.name === "Starter" ? 12000 : plan.name === "Growth" ? 15000 : plan.monthlyPrice * 3;
+      amount =
+        plan.name.toLowerCase() === "starter"
+          ? 6747
+          : plan.name.toLowerCase() === "growth"
+          ? 18897
+          : Math.round(plan.monthlyPrice * 3 * 0.9);
     }
 
     // --- Step 7: Generate temp password for admin user ---

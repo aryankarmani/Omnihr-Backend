@@ -37,6 +37,7 @@ export const getNotifications = async (req: Request, res: Response) => {
         message: n.message,
         type: n.type,
         unread: n.unread,
+        link: (n as any).link || null,
         date: n.createdAt.toISOString().split('T')[0],
         time: timeAgo(n.createdAt),
       }))

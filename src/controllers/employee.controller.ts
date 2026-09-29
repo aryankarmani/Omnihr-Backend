@@ -606,6 +606,7 @@ export const createEmployee = async (req: Request, res: Response) => {
             title: 'Welcome!',
             message: 'Your employee account has been created in OmniHR.',
             type: 'employee',
+            link: '/profile',
         });
 
         await notifyAdmins({
@@ -613,6 +614,7 @@ export const createEmployee = async (req: Request, res: Response) => {
             title: 'New Employee Added',
             message: `${name} has been added as ${title || role || 'Employee'}.`,
             type: 'employee',
+            link: `/employee/${newUser.id}`,
         });
 
         // ✅ CHANGED: Professional email with dynamic login link and random password
@@ -1055,12 +1057,34 @@ export const updateEmployee = async (req: Request, res: Response) => {
             });
         }
 
+        let notifTitle = "Profile Updated";
+        let notifMessage = "Your employee profile has been updated by admin.";
+        let notifLink = "/profile?tab=personal";
+
+        const oldShiftId = oldProfile?.shiftId;
+        const shiftChanged = shiftId !== undefined && shiftId !== oldShiftId;
+
+        if (shiftChanged && shiftId) {
+            notifTitle = "Shift Assigned";
+            notifMessage = "Your work shift has been assigned / updated.";
+            notifLink = "/profile?tab=shiftRoster";
+        } else if (salaryData) {
+            notifTitle = "Salary Updated";
+            notifMessage = "Your salary structure has been updated.";
+            notifLink = "/profile?tab=salary";
+        } else if (uan || pan || esic || bankName || accountNumber) {
+            notifTitle = "Bank & Statutory Updated";
+            notifMessage = "Your statutory and bank details have been updated.";
+            notifLink = "/profile?tab=statutory";
+        }
+
         await createNotification({
             tenantId,
             userId,
-            title: "Profile Updated",
-            message: "Your employee profile has been updated by admin.",
+            title: notifTitle,
+            message: notifMessage,
             type: "employee",
+            link: notifLink,
         });
 
         await createAuditLog({

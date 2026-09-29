@@ -13,14 +13,14 @@
     "typeRoots": ["./node_modules/@types", "./src/types"]
   },
   "include": [
-    "src/**/*"
+    "src/**/*",
+    "prisma/**/*"
   ],
   "ts-node": {
     "files": true
   },
   "exclude": [
     "node_modules",
-    "prisma",
     "**/*.spec.ts",
     "**/*.test.ts"
   ]

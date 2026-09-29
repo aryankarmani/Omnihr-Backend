@@ -117,6 +117,7 @@ model Notification {
   message String
   type    String  @default("system")
   unread  Boolean @default(true)
+  link    String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -493,8 +494,9 @@ model Designation {
   tenantId  String
   tenant    Tenant  @relation(fields: [tenantId], references: [id])
 
-  title String // e.g., "Senior Developer"
-  grade String? // Pay grade
+  title    String  // e.g., "Senior Developer"
+  grade    String? // Pay grade
+  reportTo String? // Reports To designation/title
 
   employees EmployeeProfile[]
 
