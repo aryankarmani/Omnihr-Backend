@@ -89,8 +89,12 @@ export function calculateProfileCompletion(employee: any): ProfileCompletionResu
             weight: 15,
             check: () => {
                 const phone = (profile.phone || '').trim();
-                const raw = phone.includes(' ') ? phone.split(' ')[1] : phone;
-                return !!(raw && raw.length >= 10);
+                let cleaned = phone;
+                while (cleaned.startsWith('+91')) {
+                    cleaned = cleaned.slice(3).trim();
+                }
+                const digits = cleaned.replace(/\+91/g, '').replace(/\D/g, '');
+                return !!(digits && digits.slice(-10).length === 10);
             }
         },
         {

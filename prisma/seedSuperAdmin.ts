@@ -29,23 +29,23 @@ async function main() {
   });
   console.log("Super Admin ready:", superAdmin.email);
 
-  // 2. Seed Default Plans (Basic, Pro, Enterprise) - NO TRIAL
+  // 2. Seed Default Plans (Starter, Growth, Enterprise) - matching Landing Page
   const plans = [
     {
-      name: "Basic",
-      description: "Core HR & Attendance for small teams",
-      monthlyPrice: 999,
-      yearlyPrice: 9990,
+      name: "Starter",
+      description: "For Startups & Small Teams looking to digitize HR.",
+      monthlyPrice: 2499,
+      yearlyPrice: 20000,
       currency: "INR",
       maxEmployees: 25,
       features: JSON.stringify(["DASHBOARD", "EMPLOYEES", "ATTENDANCE", "MY_PROFILE"]),
       isActive: true,
     },
     {
-      name: "Pro",
-      description: "Complete HR, Attendance, Leave, Payroll & Reports for growing companies",
-      monthlyPrice: 2499,
-      yearlyPrice: 24990,
+      name: "Growth",
+      description: "For Growing Businesses needing automated payroll, biometric tracking, and compliance.",
+      monthlyPrice: 6999,
+      yearlyPrice: 35000,
       currency: "INR",
       maxEmployees: 100,
       features: JSON.stringify(["DASHBOARD", "EMPLOYEES", "ATTENDANCE", "LEAVE", "PAYROLL", "REPORTS", "TEAMS", "MY_PROFILE"]),
@@ -53,9 +53,9 @@ async function main() {
     },
     {
       name: "Enterprise",
-      description: "All features, unlimited employee capacity, custom fields & dedicated support",
-      monthlyPrice: 5999,
-      yearlyPrice: 59990,
+      description: "For large organizations requiring bespoke compliance, SLA guarantees, and custom integrations.",
+      monthlyPrice: 0,
+      yearlyPrice: 0,
       currency: "INR",
       maxEmployees: -1, // Unlimited
       features: JSON.stringify(["DASHBOARD", "EMPLOYEES", "ATTENDANCE", "LEAVE", "PAYROLL", "REPORTS", "TEAMS", "MASTERS", "CUSTOM_FIELDS", "DEDICATED_SLA", "AUDIT_LOGS", "MY_PROFILE"]),

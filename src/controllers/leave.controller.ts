@@ -91,23 +91,62 @@ export const getLeaveBalances = async (req: Request, res: Response) => {
         const startOfYear = new Date(currentYear, 0, 1);
         const endOfYear = new Date(currentYear, 11, 31);
 
-        const approvedLeaves = await prisma.leave.findMany({
-            where: {
-                userId,
-                status: 'APPROVED',
-                startDate: {
-                    gte: startOfYear,
-                    lte: endOfYear
+        const [approvedLeaves, holidays] = await Promise.all([
+            prisma.leave.findMany({
+                where: {
+                    userId,
+                    status: 'APPROVED',
+                    startDate: {
+                        gte: startOfYear,
+                        lte: endOfYear
+                    }
                 }
-            }
+            }),
+            prisma.holiday.findMany({
+                where: {
+                    tenantId,
+                    date: {
+                        gte: startOfYear,
+                        lte: endOfYear
+                    }
+                }
+            })
+        ]);
+
+        // Build a Set of holiday dates (YYYY-MM-DD)
+        const holidayDateSet = new Set<string>();
+        holidays.forEach(h => {
+            const iso = new Date(h.date).toISOString().split('T')[0];
+            holidayDateSet.add(iso);
+            const d = new Date(h.date);
+            const local = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            holidayDateSet.add(local);
         });
 
         const balances = leaveTypes.map(type => {
             const taken = approvedLeaves
                 .filter(l => l.leaveTypeId === type.id)
                 .reduce((acc, curr) => {
-                    const days = Math.ceil((curr.endDate.getTime() - curr.startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-                    return acc + days;
+                    let deductible = 0;
+                    const cur = new Date(curr.startDate);
+                    cur.setHours(0, 0, 0, 0);
+                    const last = new Date(curr.endDate);
+                    last.setHours(0, 0, 0, 0);
+
+                    while (cur <= last) {
+                        const y = cur.getFullYear();
+                        const m = String(cur.getMonth() + 1).padStart(2, '0');
+                        const d = String(cur.getDate()).padStart(2, '0');
+                        const key = `${y}-${m}-${d}`;
+                        const isoKey = cur.toISOString().split('T')[0];
+
+                        // If not an official holiday, deduct this day from leave balance
+                        if (!holidayDateSet.has(key) && !holidayDateSet.has(isoKey)) {
+                            deductible += 1;
+                        }
+                        cur.setDate(cur.getDate() + 1);
+                    }
+                    return acc + deductible;
                 }, 0);
 
             return {
@@ -312,6 +351,7 @@ export const applyLeave = async (req: Request, res: Response) => {
             title,
             message,
             type: "leave",
+            link: "/leave?tab=APPROVALS",
         });
 
         await sendLeaveRequestPushToApprovers({
@@ -384,6 +424,7 @@ export const updateLeaveStatus = async (req: Request, res: Response) => {
             title,
             message,
             type: "leave",
+            link: "/leave?tab=MY_LEAVE",
         });
 
         await sendPushNotificationToUser(updatedLeave.userId, title, message);

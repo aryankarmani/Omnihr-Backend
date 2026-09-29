@@ -449,6 +449,7 @@ export const deleteTeam = async (req: AuthRequest, res: Response) => {
           title: "Team Deleted",
           message: `Team ${existingTeam.name} has been deleted.`,
           type: "team",
+          link: "/team",
         });
       }
     } catch (notifyError) {
@@ -600,6 +601,7 @@ export const addMembers = async (req: AuthRequest, res: Response) => {
           title: 'Added to Team',
           message: `You have been added to team ${updatedTeam?.name}.`,
           type: 'team',
+          link: '/team',
         });
       }
 
@@ -610,6 +612,7 @@ export const addMembers = async (req: AuthRequest, res: Response) => {
           title: 'Team Manager Assigned',
           message: `You have been assigned as manager of team ${updatedTeam?.name}.`,
           type: 'team',
+          link: '/team',
         });
       }
     }
@@ -687,6 +690,7 @@ export const removeMember = async (req: AuthRequest, res: Response) => {
         title: "Removed from Team",
         message: `You have been removed from team ${team.name}.`,
         type: "team",
+        link: "/team",
       });
     } catch (notifyError) {
       console.log("Notification failed but member removed:", notifyError);

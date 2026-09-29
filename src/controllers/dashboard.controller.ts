@@ -41,18 +41,31 @@ export const getStats = async (req: Request, res: Response) => {
         const endOfToday = new Date(today);
         endOfToday.setHours(23, 59, 59, 999);
 
-        const onLeaveToday = await prisma.leave.count({
+        const todayHoliday = await prisma.holiday.findFirst({
             where: {
                 tenantId,
-                status: 'APPROVED',
-                startDate: { lte: endOfToday },
-                endDate: { gte: today },
-                user: {
-                    isActive: true,
-                    deletedAt: null,
+                date: {
+                    gte: today,
+                    lte: endOfToday,
                 },
-            }
+            },
         });
+
+        let onLeaveToday = 0;
+        if (!todayHoliday) {
+            onLeaveToday = await prisma.leave.count({
+                where: {
+                    tenantId,
+                    status: 'APPROVED',
+                    startDate: { lte: endOfToday },
+                    endDate: { gte: today },
+                    user: {
+                        isActive: true,
+                        deletedAt: null,
+                    },
+                },
+            });
+        }
 
         // 3. New Joiners (Joined this month)
         const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -291,7 +304,6 @@ export const getEmployeeOverview = async (req: Request, res: Response) => {
                     },
                 },
             },
-            take: 8,
             orderBy: {
                 joiningDate: 'desc',
             },
@@ -315,6 +327,35 @@ export const getEmployeeOverview = async (req: Request, res: Response) => {
                     lte: todayStr,
                 },
             },
+        });
+
+        const startOfToday = new Date(today);
+        startOfToday.setHours(0, 0, 0, 0);
+        const endOfToday = new Date(today);
+        endOfToday.setHours(23, 59, 59, 999);
+
+        const leavesToday = await prisma.leave.findMany({
+            where: {
+                tenantId,
+                status: 'APPROVED',
+                userId: { in: userIds },
+                startDate: { lte: endOfToday },
+                endDate: { gte: startOfToday },
+            },
+            select: {
+                userId: true,
+                leaveType: { select: { name: true } }
+            }
+        });
+
+        const todayHoliday = await prisma.holiday.findFirst({
+            where: {
+                tenantId,
+                date: {
+                    gte: startOfToday,
+                    lte: endOfToday,
+                }
+            }
         });
 
         const countWorkingDays = (start: Date, end: Date): number => {
@@ -366,6 +407,65 @@ export const getEmployeeOverview = async (req: Request, res: Response) => {
                 attendancePercentage = 0;
             }
 
+            // Calculate Today's Status
+            const todayRec = userRecords.find(r => r.date === todayStr);
+            const userLeave = leavesToday.find(l => l.userId === emp.user.id);
+
+            let todayStatus = 'Absent';
+            let todayStatusType: 'PRESENT' | 'LATE' | 'HALF_DAY' | 'LEAVE' | 'ABSENT' | 'HOLIDAY' | 'WEEKEND' = 'ABSENT';
+
+            if (todayRec) {
+                const s = (todayRec.status || '').toUpperCase();
+                if (s.includes('HALF')) {
+                    todayStatus = 'Half Day';
+                    todayStatusType = 'HALF_DAY';
+                } else if (s.includes('LEAVE')) {
+                    todayStatus = 'On Leave';
+                    todayStatusType = 'LEAVE';
+                } else if (todayRec.inTime) {
+                    // Check check-in time against 09:30 AM India Standard Time (Asia/Kolkata)
+                    const inDate = new Date(todayRec.inTime);
+                    const parts = new Intl.DateTimeFormat('en-US', {
+                        timeZone: 'Asia/Kolkata',
+                        hour: 'numeric',
+                        minute: 'numeric',
+                        hour12: false,
+                    }).formatToParts(inDate);
+
+                    const hour = Number(parts.find(p => p.type === 'hour')?.value || 0);
+                    const minute = Number(parts.find(p => p.type === 'minute')?.value || 0);
+
+                    if (s.includes('LATE') || hour > 9 || (hour === 9 && minute > 30)) {
+                        todayStatus = 'Late';
+                        todayStatusType = 'LATE';
+                    } else {
+                        todayStatus = 'Present';
+                        todayStatusType = 'PRESENT';
+                    }
+                } else if (s.includes('LATE')) {
+                    todayStatus = 'Late';
+                    todayStatusType = 'LATE';
+                } else if (s.includes('PRESENT')) {
+                    todayStatus = 'Present';
+                    todayStatusType = 'PRESENT';
+                } else {
+                    todayStatus = 'Absent';
+                    todayStatusType = 'ABSENT';
+                }
+            } else if (userLeave) {
+                todayStatus = userLeave.leaveType?.name || 'On Leave';
+                todayStatusType = 'LEAVE';
+            } else if (todayHoliday) {
+                todayStatus = todayHoliday.name || 'Holiday';
+                todayStatusType = 'HOLIDAY';
+            } else if (today.getDay() === 0) {
+                todayStatus = 'Weekend';
+                todayStatusType = 'WEEKEND';
+            } else {
+                todayStatus = 'Absent';
+                todayStatusType = 'ABSENT';
+            }
+
             return {
                 id: emp.user.id,
                 name: emp.user.name,
@@ -373,6 +473,9 @@ export const getEmployeeOverview = async (req: Request, res: Response) => {
                 role: emp.title || 'Employee',
                 department: emp.department,
                 status: emp.status || 'Active',
+                todayStatus,
+                todayStatusType,
+                inTime: todayRec?.inTime ? new Date(todayRec.inTime).toLocaleTimeString('en-US', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true }).toLowerCase() : null,
                 attendancePercentage,
                 attendedDays,
                 workingDays,

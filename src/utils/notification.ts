@@ -10,12 +10,14 @@ export const createNotification = async ({
   title,
   message,
   type = 'system',
+  link,
 }: {
   tenantId: string;
   userId: number;
   title: string;
   message: string;
   type?: NotificationType;
+  link?: string;
 }) => {
   return prisma.notification.create({
     data: {
@@ -25,7 +27,8 @@ export const createNotification = async ({
       message,
       type,
       unread: true,
-    },
+      ...(link ? { link } : {}),
+    } as any,
   });
 };
 
@@ -34,11 +37,13 @@ export const notifyAdmins = async ({
   title,
   message,
   type = 'system',
+  link,
 }: {
   tenantId: string;
   title: string;
   message: string;
   type?: NotificationType;
+  link?: string;
 }) => {
   const admins = await prisma.user.findMany({
     where: {
@@ -61,6 +66,7 @@ export const notifyAdmins = async ({
       message,
       type,
       unread: true,
-    })),
+      ...(link ? { link } : {}),
+    })) as any,
   });
 };

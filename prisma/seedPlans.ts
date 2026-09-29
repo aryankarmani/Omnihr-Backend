@@ -1,25 +1,41 @@
-﻿import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 async function main() {
   const plans = [
     {
       name: "Starter",
-      description: "For growing startups and small businesses looking to digitize HR.",
-      monthlyPrice: 4000,
-      yearlyPrice: 25000,
+      description: "For Startups & Small Teams looking to digitize HR.",
+      monthlyPrice: 2499,
+      yearlyPrice: 20000,
       currency: "INR",
       maxEmployees: 25,
-      features: JSON.stringify(["Employee Directory & Records","Smart Attendance & Check-ins","Standard Leave Management","Basic Document Vault (5GB)","Standard Payslip Generation","Email & Community Support"]),
+      features: JSON.stringify([
+        "Up to 25 Employees included",
+        "Core Employee Records & Directory",
+        "Attendance & Leave Request portal",
+        "Basic salary slip generator",
+        "Standard email support",
+        "₹99/month per extra employee"
+      ]),
       isActive: true,
     },
     {
       name: "Growth",
-      description: "For scaling companies that need multi-tier payroll, custom policies, and audits.",
+      description: "For Growing Businesses needing automated payroll, biometric tracking, and compliance.",
       monthlyPrice: 6999,
       yearlyPrice: 35000,
       currency: "INR",
-      maxEmployees: 150,
-      features: JSON.stringify(["Automated Multi-Tier Payroll Engine","Biometric & Geofenced Attendance","Custom Leave Rules & Multi-Level Approvals","Digital Signatures & Unlimited Vault","Advanced Workforce Analytics & Audit Logs","Priority 24/7 Support & Onboarding"]),
+      maxEmployees: 100,
+      features: JSON.stringify([
+        "Everything in Starter included",
+        "Up to 100 Employees included",
+        "Full Automated Payroll with Tax Slabs",
+        "Biometric Device Integration API",
+        "Encrypted Document Locker for all staff",
+        "Role-Based Access (Multi-manager approval)",
+        "Priority 24/7 chat support",
+        "₹79/month per extra employee • 99.9% uptime SLA"
+      ]),
       isActive: true,
     },
     {
@@ -29,7 +45,14 @@ async function main() {
       yearlyPrice: 0,
       currency: "INR",
       maxEmployees: -1,
-      features: JSON.stringify(["Tailored Statutory Compliance & Filings","Dedicated Account Manager & Migration","Custom API Access & Webhooks","Enterprise Single Sign-On (SSO / SAML)","99.9% Uptime SLA & Custom Agreements","SOC-2 & ISO Data Security Audits"]),
+      features: JSON.stringify([
+        "Tailored Statutory Compliance & Filings",
+        "Dedicated Account Manager & Migration",
+        "Custom API Access & Webhooks",
+        "Enterprise Single Sign-On (SSO / SAML)",
+        "99.9% Uptime SLA & Custom Agreements",
+        "SOC-2 & ISO Data Security Audits"
+      ]),
       isActive: true,
     },
   ];

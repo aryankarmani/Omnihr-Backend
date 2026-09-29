@@ -89,6 +89,18 @@ const canAccessEmployeeRegularization = async (
     return memberIds.includes(targetUserId);
 };
 
+const getISTTimeParts = (date: Date) => {
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Kolkata',
+        hour: 'numeric',
+        minute: 'numeric',
+        hour12: false
+    }).formatToParts(date);
+    const hour = Number(parts.find(p => p.type === 'hour')?.value || 0);
+    const minute = Number(parts.find(p => p.type === 'minute')?.value || 0);
+    return { hour, minute };
+};
+
 // UPDATED: Calculate attendance status from proposed in/out time
 const calculateRegularizedStatus = (inTime?: Date | null, outTime?: Date | null) => {
     if (!inTime || !outTime) return { status: 'Absent', hours: 0 };
@@ -97,8 +109,7 @@ const calculateRegularizedStatus = (inTime?: Date | null, outTime?: Date | null)
 
     let status = 'Present';
 
-    const punchInHour = inTime.getHours();
-    const punchInMinute = inTime.getMinutes();
+    const { hour: punchInHour, minute: punchInMinute } = getISTTimeParts(inTime);
 
     if (hours < 4) {
         status = 'Half Day';
@@ -179,10 +190,9 @@ export const punchToggle = async (req: AuthRequest, res: Response) => {
             }
 
             // Punch In
-            // Simple Late Mark Logic: After 09:30 AM is late
+            // Simple Late Mark Logic: After 09:30 AM IST (India Time) is late
             let status = 'Present';
-            const punchInHour = now.getHours();
-            const punchInMinute = now.getMinutes();
+            const { hour: punchInHour, minute: punchInMinute } = getISTTimeParts(now);
             // 9:30 AM threshold
             if (punchInHour > 9 || (punchInHour === 9 && punchInMinute > 30)) {
                 status = 'Late';
@@ -201,7 +211,7 @@ export const punchToggle = async (req: AuthRequest, res: Response) => {
 
                 const title = "Attendance Alert";
                 const message =
-                    "You were marked late today. Please regularize your attendance if needed.";
+                    "You were marked late today. Please request an attendance correction if needed.";
 
                 await createNotification({
                     tenantId,
@@ -209,6 +219,7 @@ export const punchToggle = async (req: AuthRequest, res: Response) => {
                     title,
                     message,
                     type: "attendance",
+                    link: "/attendance",
                 });
 
                 // ✅ NEW: Push notification to employee
@@ -467,7 +478,7 @@ export const applyRegularization = async (req: AuthRequest, res: Response) => {
         const dayOfWeek = targetDate.getDay();
         if (dayOfWeek === 0 || dayOfWeek === 6) {
             return res.status(400).json({
-                message: 'Cannot apply for regularization on weekends (Saturday / Sunday)',
+                message: 'Cannot apply for correction on weekends (Saturday / Sunday)',
             });
         }
 
@@ -487,13 +498,13 @@ export const applyRegularization = async (req: AuthRequest, res: Response) => {
 
         if (diffDays < 0) {
             return res.status(400).json({
-                message: 'Cannot regularize future date',
+                message: 'Cannot request correction for future date',
             });
         }
 
         if (diffDays > allowedDays) {
             return res.status(400).json({
-                message: `Policy limit exceeded. You can regularize only within ${allowedDays} days.`,
+                message: `Policy limit exceeded. You can request correction only within ${allowedDays} days.`,
             });
         }
 
@@ -508,7 +519,7 @@ export const applyRegularization = async (req: AuthRequest, res: Response) => {
 
         if (existingPending) {
             return res.status(400).json({
-                message: 'A pending regularization request already exists for this date',
+                message: 'A pending correction request already exists for this date',
             });
         }
 
@@ -552,7 +563,7 @@ export const applyRegularization = async (req: AuthRequest, res: Response) => {
 
         const title = "Attendance Correction Request";
         const message = `${request.user?.name || request.user?.email || "Employee"
-            } submitted attendance regularization for ${date}.`;
+            } submitted an attendance correction request for ${date}.`;
 
         // ✅ OLD: In-app notification to admins
         await notifyAdmins({
@@ -560,6 +571,7 @@ export const applyRegularization = async (req: AuthRequest, res: Response) => {
             title,
             message,
             type: "attendance",
+            link: "/regularizations",
         });
 
         // ✅ NEW: Push notification to HR/Admin/Manager
@@ -572,9 +584,9 @@ export const applyRegularization = async (req: AuthRequest, res: Response) => {
 
         await createAuditLog({
             tenantId,
-            module: "Regularization",
+            module: "Correction",
             action: "Requested",
-            description: `${request.user?.name || "Employee"} submitted attendance regularization for ${date}.`,
+            description: `${request.user?.name || "Employee"} submitted an attendance correction request for ${date}.`,
             performedById: userId,
             performedBy: request.user?.name || "Employee",
             performedByRole: req.user?.role,
@@ -584,13 +596,13 @@ export const applyRegularization = async (req: AuthRequest, res: Response) => {
         });
 
         res.status(201).json({
-            message: "Attendance regularization request submitted successfully",
+            message: "Attendance correction request submitted successfully",
             request,
         });
     } catch (error: any) {
-        console.error("Regularization apply error:", error);
+        console.error("Correction apply error:", error);
         res.status(500).json({
-            message: "Error submitting regularization request",
+            message: "Error submitting correction request",
             error: error.message,
         });
     }
@@ -645,7 +657,7 @@ export const getPendingRegularizations = async (req: AuthRequest, res: Response)
 
             if (memberIds.length === 0) {
                 return res.status(403).json({
-                    message: "Only admin or team manager can view pending regularization requests",
+                    message: "Only admin or team manager can view pending correction requests",
                 });
             }
 
@@ -683,7 +695,7 @@ export const getPendingRegularizations = async (req: AuthRequest, res: Response)
         res.json(requests);
     } catch (error: any) {
         res.status(500).json({
-            message: "Error fetching pending regularization requests",
+            message: "Error fetching pending correction requests",
 
             error: error.message,
         });
@@ -711,7 +723,7 @@ export const approveRegularization = async (req: AuthRequest, res: Response) => 
 
         if (!request) {
             return res.status(404).json({
-                message: "Pending regularization request not found",
+                message: "Pending correction request not found",
             });
         }
 
@@ -724,7 +736,7 @@ export const approveRegularization = async (req: AuthRequest, res: Response) => 
 
         if (!allowed) {
             return res.status(403).json({
-                message: "You can approve only your team member regularization requests",
+                message: "You can approve only your team member correction requests",
 
             });
         }
@@ -785,6 +797,7 @@ export const approveRegularization = async (req: AuthRequest, res: Response) => 
             title,
             message,
             type: "attendance",
+            link: "/attendance",
         });
 
         // ✅ NEW: Push notification to employee
@@ -792,9 +805,9 @@ export const approveRegularization = async (req: AuthRequest, res: Response) => 
 
         await createAuditLog({
             tenantId,
-            module: "Regularization",
+            module: "Correction",
             action: "Approved",
-            description: `${request.user?.name || "Employee"}'s attendance regularization for ${request.date} was approved.`,
+            description: `${request.user?.name || "Employee"}'s attendance correction for ${request.date} was approved.`,
             performedById: approverId,
             performedBy: req.user?.email || "Admin",
             performedByRole: req.user?.role,
@@ -804,13 +817,13 @@ export const approveRegularization = async (req: AuthRequest, res: Response) => 
         });
 
         res.json({
-            message: "Regularization approved and attendance updated successfully",
+            message: "Attendance correction approved and attendance updated successfully",
             ...result,
         });
     } catch (error: any) {
-        console.error("Approve regularization error:", error);
+        console.error("Approve correction error:", error);
         res.status(500).json({
-            message: "Error approving regularization request",
+            message: "Error approving correction request",
             error: error.message,
         });
     }
@@ -835,7 +848,7 @@ export const rejectRegularization = async (req: AuthRequest, res: Response) => {
 
         if (!request) {
             return res.status(404).json({
-                message: "Pending regularization request not found",
+                message: "Pending correction request not found",
             });
         }
 
@@ -848,7 +861,7 @@ export const rejectRegularization = async (req: AuthRequest, res: Response) => {
 
         if (!allowed) {
             return res.status(403).json({
-                message: "You can reject only your team member regularization requests",
+                message: "You can reject only your team member correction requests",
 
             });
         }
@@ -880,6 +893,7 @@ export const rejectRegularization = async (req: AuthRequest, res: Response) => {
             title,
             message,
             type: "attendance",
+            link: "/attendance",
         });
 
         // ✅ NEW: Push notification to employee
@@ -887,9 +901,9 @@ export const rejectRegularization = async (req: AuthRequest, res: Response) => {
 
         await createAuditLog({
             tenantId,
-            module: "Regularization",
+            module: "Correction",
             action: "Rejected",
-            description: `${request.userId}'s attendance regularization for ${request.date} was rejected.`,
+            description: `${request.userId}'s attendance correction for ${request.date} was rejected.`,
             performedById: approverId,
             performedBy: req.user?.email || "Admin",
             performedByRole: req.user?.role,
@@ -899,13 +913,13 @@ export const rejectRegularization = async (req: AuthRequest, res: Response) => {
         });
 
         res.json({
-            message: "Regularization request rejected successfully",
+            message: "Attendance correction request rejected successfully",
             request: updatedRequest,
         });
     } catch (error: any) {
-        console.error("Reject regularization error:", error);
+        console.error("Reject correction error:", error);
         res.status(500).json({
-            message: "Error rejecting regularization request",
+            message: "Error rejecting correction request",
             error: error.message,
         });
     }
@@ -919,7 +933,7 @@ export const forceRegularizeAttendance = async (req: AuthRequest, res: Response)
 
         if (!isAdmin(req.user)) {
             return res.status(403).json({
-                message: 'Only admin can directly regularize attendance',
+                message: 'Only admin can directly correct attendance',
             });
         }
         // ✅ ADDED: check whether logged-in user can access target employee
@@ -1028,19 +1042,20 @@ export const forceRegularizeAttendance = async (req: AuthRequest, res: Response)
             title,
             message,
             type: "attendance",
+            link: "/attendance",
         });
 
         // ✅ NEW: Push notification to employee
         await sendPushNotificationToUser(userId, title, message);
 
         res.json({
-            message: "Attendance directly regularized successfully",
+            message: "Attendance directly corrected successfully",
             attendance,
         });
     } catch (error: any) {
-        console.error("Force regularization error:", error);
+        console.error("Force correction error:", error);
         res.status(500).json({
-            message: "Error directly regularizing attendance",
+            message: "Error directly correcting attendance",
             error: error.message,
         });
     }
