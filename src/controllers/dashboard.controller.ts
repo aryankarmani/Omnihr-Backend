@@ -414,7 +414,36 @@ export const getEmployeeOverview = async (req: Request, res: Response) => {
             let todayStatus = 'Absent';
             let todayStatusType: 'PRESENT' | 'LATE' | 'HALF_DAY' | 'LEAVE' | 'ABSENT' | 'HOLIDAY' | 'WEEKEND' = 'ABSENT';
 
-            if (todayRec) {
+            if (todayRec?.inTime) {
+                // If employee came in and punched in (even on a holiday)
+                const s = (todayRec.status || '').toUpperCase();
+                const inDate = new Date(todayRec.inTime);
+                const parts = new Intl.DateTimeFormat('en-US', {
+                    timeZone: 'Asia/Kolkata',
+                    hour: 'numeric',
+                    minute: 'numeric',
+                    hour12: false,
+                }).formatToParts(inDate);
+
+                const hour = Number(parts.find(p => p.type === 'hour')?.value || 0);
+                const minute = Number(parts.find(p => p.type === 'minute')?.value || 0);
+
+                if (s.includes('LATE') || hour > 9 || (hour === 9 && minute > 30)) {
+                    todayStatus = 'Late';
+                    todayStatusType = 'LATE';
+                } else {
+                    todayStatus = 'Present';
+                    todayStatusType = 'PRESENT';
+                }
+            } else if (todayHoliday) {
+                // Official holiday takes priority over leave and unpunched records
+                todayStatus = todayHoliday.name || 'Holiday';
+                todayStatusType = 'HOLIDAY';
+            } else if (userLeave) {
+                // Approved leave on a regular working day
+                todayStatus = userLeave.leaveType?.name || 'On Leave';
+                todayStatusType = 'LEAVE';
+            } else if (todayRec) {
                 const s = (todayRec.status || '').toUpperCase();
                 if (s.includes('HALF')) {
                     todayStatus = 'Half Day';
@@ -422,26 +451,6 @@ export const getEmployeeOverview = async (req: Request, res: Response) => {
                 } else if (s.includes('LEAVE')) {
                     todayStatus = 'On Leave';
                     todayStatusType = 'LEAVE';
-                } else if (todayRec.inTime) {
-                    // Check check-in time against 09:30 AM India Standard Time (Asia/Kolkata)
-                    const inDate = new Date(todayRec.inTime);
-                    const parts = new Intl.DateTimeFormat('en-US', {
-                        timeZone: 'Asia/Kolkata',
-                        hour: 'numeric',
-                        minute: 'numeric',
-                        hour12: false,
-                    }).formatToParts(inDate);
-
-                    const hour = Number(parts.find(p => p.type === 'hour')?.value || 0);
-                    const minute = Number(parts.find(p => p.type === 'minute')?.value || 0);
-
-                    if (s.includes('LATE') || hour > 9 || (hour === 9 && minute > 30)) {
-                        todayStatus = 'Late';
-                        todayStatusType = 'LATE';
-                    } else {
-                        todayStatus = 'Present';
-                        todayStatusType = 'PRESENT';
-                    }
                 } else if (s.includes('LATE')) {
                     todayStatus = 'Late';
                     todayStatusType = 'LATE';
@@ -452,12 +461,6 @@ export const getEmployeeOverview = async (req: Request, res: Response) => {
                     todayStatus = 'Absent';
                     todayStatusType = 'ABSENT';
                 }
-            } else if (userLeave) {
-                todayStatus = userLeave.leaveType?.name || 'On Leave';
-                todayStatusType = 'LEAVE';
-            } else if (todayHoliday) {
-                todayStatus = todayHoliday.name || 'Holiday';
-                todayStatusType = 'HOLIDAY';
             } else if (today.getDay() === 0) {
                 todayStatus = 'Weekend';
                 todayStatusType = 'WEEKEND';

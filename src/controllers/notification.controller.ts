@@ -2,9 +2,8 @@ import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
-
 const timeAgo = (date: Date) => {
-  const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
+  const seconds = Math.max(0, Math.floor((Date.now() - new Date(date).getTime()) / 1000));
 
   if (seconds < 60) return `${seconds} secs ago`;
   const minutes = Math.floor(seconds / 60);
