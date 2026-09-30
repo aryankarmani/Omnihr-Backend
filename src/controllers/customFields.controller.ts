@@ -102,9 +102,16 @@ export const deleteCustomField = async (req: Request, res: Response) => {
 export const getEmployeeCustomFields = async (req: Request, res: Response) => {
     try {
         const { tenantId } = req.user as any;
-        const { id } = req.params; // userId
+        const currentUser = req.user as any;
+        const { id } = req.params;
+        const userId = id === 'me' ? currentUser.id : Number(id);
 
-        const userId = id === 'me' ? (req.user as any).id : Number(id);
+        const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
+        const isAdmin = currentUser?.role === 'HR_ADMIN' || currentUser?.role === 'ADMIN' || currentUser?.role === 'SYSTEM_ADMIN' || isSuperAdmin;
+
+        if (!isAdmin && Number(currentUser?.id) !== Number(userId)) {
+            return res.status(403).json({ error: "Access denied" });
+        }
 
         const profile = await prisma.employeeProfile.findFirst({
             where: { userId, tenantId, isActive: true, deletedAt: null }
