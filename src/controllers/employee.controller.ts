@@ -660,9 +660,17 @@ export const createEmployee = async (req: Request, res: Response) => {
 export const getEmployee = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
-        const tenantId = (req as any).user?.tenantId; // Assuming auth middleware attaches user
+        const currentUser = (req as any).user;
+        const tenantId = currentUser?.tenantId;
 
         if (!tenantId) return res.status(401).json({ message: 'Unauthorized' });
+
+        const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
+        const isAdmin = currentUser?.role === 'HR_ADMIN' || currentUser?.role === 'ADMIN' || currentUser?.role === 'SYSTEM_ADMIN' || isSuperAdmin;
+
+        if (!isAdmin && Number(currentUser?.id) !== Number(id)) {
+            return res.status(403).json({ message: 'Access denied: Employees can only view their own profile' });
+        }
 
         const employee = await prisma.user.findFirst({
             where: {
@@ -753,6 +761,13 @@ export const updateEmployee = async (req: Request, res: Response) => {
         const tenantId = loggedInUser?.tenantId;
         if (!tenantId) {
             return res.status(401).json({ message: "Unauthorized" });
+        }
+
+        const isSuperAdmin = loggedInUser?.role === 'SUPER_ADMIN';
+        const isAdmin = loggedInUser?.role === 'HR_ADMIN' || loggedInUser?.role === 'ADMIN' || loggedInUser?.role === 'SYSTEM_ADMIN' || isSuperAdmin;
+
+        if (!isAdmin && Number(loggedInUser?.id) !== Number(userId)) {
+            return res.status(403).json({ message: "Access denied: Employees cannot update other employee profiles" });
         }
 
         const {
@@ -1524,6 +1539,13 @@ export const updateProfilePicture = async (req: Request, res: Response) => {
             return res.status(401).json({ message: "Unauthorized" });
         }
 
+        const isSuperAdmin = loggedInUser?.role === 'SUPER_ADMIN';
+        const isAdmin = loggedInUser?.role === 'HR_ADMIN' || loggedInUser?.role === 'ADMIN' || loggedInUser?.role === 'SYSTEM_ADMIN' || isSuperAdmin;
+
+        if (!isAdmin && Number(loggedInUser?.id) !== Number(userId)) {
+            return res.status(403).json({ message: "Access denied" });
+        }
+
         const file = req.file;
         if (!file) {
             return res.status(400).json({ message: "Profile picture file is required" });
@@ -1591,6 +1613,13 @@ export const deleteProfilePicture = async (req: Request, res: Response) => {
         const tenantId = loggedInUser?.tenantId;
         if (!tenantId) {
             return res.status(401).json({ message: "Unauthorized" });
+        }
+
+        const isSuperAdminDel = loggedInUser?.role === 'SUPER_ADMIN';
+        const isAdminDel = loggedInUser?.role === 'HR_ADMIN' || loggedInUser?.role === 'ADMIN' || loggedInUser?.role === 'SYSTEM_ADMIN' || isSuperAdminDel;
+
+        if (!isAdminDel && Number(loggedInUser?.id) !== Number(userId)) {
+            return res.status(403).json({ message: "Access denied" });
         }
 
         // Find existing employee profile
