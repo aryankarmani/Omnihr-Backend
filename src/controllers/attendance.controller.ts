@@ -3,7 +3,6 @@ import { PrismaClient } from '@prisma/client';
 import { createNotification, notifyAdmins } from '../utils/notification';
 import { getManagerTeamMemberIds, isAdminOrManager } from "../utils/teamScope";
 import { createAuditLog } from "../utils/auditLog";
-
 import { sendPushNotificationToUser } from "./pushNotification.controller";
 
 const prisma = new PrismaClient();
@@ -126,29 +125,48 @@ const calculateRegularizedStatus = (inTime?: Date | null, outTime?: Date | null)
 export const getPunchStatus = async (req: AuthRequest, res: Response) => {
     try {
         const userId = req.user.id;
-        const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+        const tenantId = req.user.tenantId;
+        const now = new Date();
+        const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(now);
 
-        const record = await prisma.attendanceRecord.findFirst({
+        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+        const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+        const [record, todayHoliday] = await Promise.all([
+            prisma.attendanceRecord.findFirst({
+                where: {
+                    userId,
+                    date: today
+                }
+            }),
+            prisma.holiday.findFirst({
+                where: {
+                    tenantId,
+                    date: { gte: startOfDay, lte: endOfDay }
+                }
+            })
+        ]);
+
+        // Only block if NOT a holiday (holiday has priority and allows working)
+        const approvedLeave = !todayHoliday ? await prisma.leave.findFirst({
             where: {
                 userId,
-                date: today
-            }
-        });
-
-        if (record) {
-            return res.json({
-                isPunchedIn: record.inTime && !record.outTime,
-                punchInTime: record.inTime,
-                punchOutTime: record.outTime,
-                status: record.status
-            });
-        }
+                status: 'APPROVED',
+                startDate: { lte: endOfDay },
+                endDate: { gte: startOfDay }
+            },
+            include: { leaveType: true }
+        }) : null;
 
         return res.json({
-            isPunchedIn: false,
-            punchInTime: null,
-            punchOutTime: null,
-            status: null
+            isPunchedIn: !!(record?.inTime && !record?.outTime),
+            punchInTime: record?.inTime || null,
+            punchOutTime: record?.outTime || null,
+            status: record?.status || null,
+            isOnLeave: !!approvedLeave,
+            leaveTypeName: approvedLeave?.leaveType?.name || null,
+            isHoliday: !!todayHoliday,
+            holidayName: todayHoliday?.name || null
         });
     } catch (error: any) {
         res.status(500).json({ message: 'Error fetching punch status', error: error.message });
@@ -171,22 +189,35 @@ export const punchToggle = async (req: AuthRequest, res: Response) => {
             },
         });
 
-        if (!record) {
-            // Check if there is an approved leave overlapping today
-            const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-            const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+        const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
-            const approvedLeave = await prisma.leave.findFirst({
-                where: {
-                    userId,
-                    status: 'APPROVED',
-                    startDate: { lte: endOfDay },
-                    endDate: { gte: startOfDay }
-                },
-            });
+        // Check if today is an official holiday for the tenant
+        const todayHoliday = await prisma.holiday.findFirst({
+            where: {
+                tenantId,
+                date: {
+                    gte: startOfDay,
+                    lte: endOfDay
+                }
+            }
+        });
 
-            if (approvedLeave) {
-                return res.status(400).json({ message: 'You are on leave today. Punch-in is disabled.' });
+        if (!record || !record.inTime) {
+            // Block punch-in if on approved leave, EXCEPT if today is an official holiday
+            if (!todayHoliday) {
+                const approvedLeave = await prisma.leave.findFirst({
+                    where: {
+                        userId,
+                        status: 'APPROVED',
+                        startDate: { lte: endOfDay },
+                        endDate: { gte: startOfDay }
+                    },
+                });
+
+                if (approvedLeave) {
+                    return res.status(400).json({ message: 'You are on leave today. Punch-in is disabled.' });
+                }
             }
 
             // Punch In
@@ -198,17 +229,27 @@ export const punchToggle = async (req: AuthRequest, res: Response) => {
                 status = 'Late';
             }
 
-            record = await prisma.attendanceRecord.create({
-                data: {
-                    userId,
-                    tenantId,
-                    date: today,
-                    inTime: now,
-                    status
-                }
-            });
-            if (status === 'Late') {
+            if (record) {
+                record = await prisma.attendanceRecord.update({
+                    where: { id: record.id },
+                    data: {
+                        inTime: now,
+                        status
+                    }
+                });
+            } else {
+                record = await prisma.attendanceRecord.create({
+                    data: {
+                        userId,
+                        tenantId,
+                        date: today,
+                        inTime: now,
+                        status
+                    }
+                });
+            }
 
+            if (status === 'Late') {
                 const title = "Attendance Alert";
                 const message =
                     "You were marked late today. Please request an attendance correction if needed.";
@@ -222,7 +263,6 @@ export const punchToggle = async (req: AuthRequest, res: Response) => {
                     link: "/attendance",
                 });
 
-                // ✅ NEW: Push notification to employee
                 await sendPushNotificationToUser(userId, title, message);
             }
 
