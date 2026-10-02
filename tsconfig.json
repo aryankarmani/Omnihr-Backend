@@ -4,6 +4,7 @@
     "module": "commonjs",
     "moduleResolution": "node",
     "baseUrl": ".",
+    "rootDir": "./src",
     "outDir": "./dist",
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
@@ -13,8 +14,7 @@
     "typeRoots": ["./node_modules/@types", "./src/types"]
   },
   "include": [
-    "src/**/*",
-    "prisma/**/*"
+    "src/**/*"
   ],
   "ts-node": {
     "files": true
