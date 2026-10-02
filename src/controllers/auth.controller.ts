@@ -371,14 +371,95 @@ export const logout = async (req: Request, res: Response) => {
   }
 };
 
-// ✅ ADDED: Send OTP for forgot password
+// ✅ Cryptographic Server-Side CAPTCHA
+export const getCaptcha = async (req: Request, res: Response) => {
+  try {
+    const chars = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+    let code = "";
+    for (let i = 0; i < 5; i++) {
+      code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+
+    const timestamp = Date.now();
+    const secret = process.env.JWT_SECRET || "secret";
+    const hash = crypto
+      .createHmac("sha256", secret)
+      .update(`${code.toUpperCase()}:${timestamp}`)
+      .digest("hex");
+    const captchaToken = `${hash}.${timestamp}`;
+
+    let lines = "";
+    for (let i = 0; i < 3; i++) {
+      const x1 = Math.floor(Math.random() * 20);
+      const y1 = Math.floor(Math.random() * 40);
+      const x2 = Math.floor(80 + Math.random() * 40);
+      const y2 = Math.floor(Math.random() * 40);
+      lines += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="rgba(99,102,241,0.35)" stroke-width="1.5" />`;
+    }
+    let charElements = "";
+    const colors = ["#1e1b4b", "#4338ca", "#3730a3", "#1e293b", "#0f172a"];
+    for (let i = 0; i < code.length; i++) {
+      const x = 16 + i * 22;
+      const y = 30 + (Math.random() * 4 - 2);
+      const rot = Math.random() * 20 - 10;
+      const color = colors[i % colors.length];
+      charElements += `<text x="${x}" y="${y}" font-family="monospace" font-size="22" font-weight="900" fill="${color}" transform="rotate(${rot}, ${x}, ${y})">${code[i]}</text>`;
+    }
+    const captchaSvg = `<svg width="130" height="44" viewBox="0 0 130 44" xmlns="http://www.w3.org/2000/svg" style="background:#f8fafc; border-radius:6px;">${lines}${charElements}</svg>`;
+
+    return res.json({
+      captchaSvg,
+      captchaToken,
+    });
+  } catch (error: any) {
+    console.error("Captcha error:", error);
+    return res.status(500).json({ message: "Failed to generate captcha" });
+  }
+};
+
+// ✅ ADDED: Send OTP for forgot password with cryptographic CAPTCHA verification
 export const sendOtp = async (req: Request, res: Response) => {
   try {
     const email = req.body.email?.toLowerCase().trim();
+    const { captchaInput, captchaToken } = req.body;
 
     if (!email) {
       return res.status(400).json({
         message: "Email is required",
+      });
+    }
+
+    if (!captchaInput || !captchaToken) {
+      return res.status(400).json({
+        message: "Please enter the captcha code",
+      });
+    }
+
+    const [hash, timeStr] = String(captchaToken).split(".");
+    const time = parseInt(timeStr, 10);
+
+    if (!hash || !time || isNaN(time)) {
+      return res.status(400).json({
+        message: "Invalid captcha token. Please refresh the captcha.",
+      });
+    }
+
+    // 5 minutes expiry
+    if (Date.now() - time > 5 * 60 * 1000) {
+      return res.status(400).json({
+        message: "Captcha expired. Please click refresh to get a new captcha.",
+      });
+    }
+
+    const secret = process.env.JWT_SECRET || "secret";
+    const expectedHash = crypto
+      .createHmac("sha256", secret)
+      .update(`${String(captchaInput).trim().toUpperCase()}:${time}`)
+      .digest("hex");
+
+    if (hash !== expectedHash) {
+      return res.status(400).json({
+        message: "Incorrect captcha code. Please check and re-enter.",
       });
     }
 
