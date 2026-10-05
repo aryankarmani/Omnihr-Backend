@@ -54,9 +54,20 @@ export const registerSuperAdmin = async (req: Request, res: Response) => {
       { expiresIn: "7d" }
     );
 
+    const refreshToken = jwt.sign(
+      {
+        id: superAdmin.id,
+        email: superAdmin.email,
+        type: "SUPER_ADMIN_REFRESH",
+      },
+      process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET || "secret",
+      { expiresIn: "30d" }
+    );
+
     return res.status(201).json({
       message: "Super Admin registered successfully.",
       token,
+      refreshToken,
       superAdmin: {
         id: superAdmin.id,
         email: superAdmin.email,
@@ -107,9 +118,20 @@ export const superAdminLogin = async (req: Request, res: Response) => {
       { expiresIn: "7d" }
     );
 
+    const refreshToken = jwt.sign(
+      {
+        id: admin.id,
+        email: admin.email,
+        type: "SUPER_ADMIN_REFRESH",
+      },
+      process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET || "secret",
+      { expiresIn: "30d" }
+    );
+
     return res.json({
       message: "Super Admin authenticated successfully.",
       token,
+      refreshToken,
       superAdmin: {
         id: admin.id,
         email: admin.email,
@@ -121,6 +143,91 @@ export const superAdminLogin = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error("Super Admin login error:", error);
     return res.status(500).json({ message: "Internal server error during login." });
+  }
+};
+
+export const refreshSuperAdminToken = async (req: Request, res: Response) => {
+  try {
+    const { refreshToken } = req.body;
+    if (!refreshToken) {
+      return res.status(400).json({ message: "Refresh token is required." });
+    }
+
+    const secret = process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET || "secret";
+    let decoded: any;
+    try {
+      decoded = jwt.verify(refreshToken, secret);
+    } catch {
+      return res.status(401).json({ message: "Invalid or expired refresh token." });
+    }
+
+    if (decoded.type !== "SUPER_ADMIN_REFRESH" && decoded.role !== "SUPER_ADMIN") {
+      return res.status(403).json({ message: "Invalid token type." });
+    }
+
+    let admin: any = null;
+    if (decoded.id) {
+      admin = await prisma.superAdmin.findUnique({
+        where: { id: decoded.id },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          isActive: true,
+          forcePasswordChange: true,
+        },
+      });
+    }
+
+    if (!admin && decoded.email) {
+      admin = await prisma.superAdmin.findUnique({
+        where: { email: decoded.email.toLowerCase().trim() },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          isActive: true,
+          forcePasswordChange: true,
+        },
+      });
+    }
+
+    if (!admin || !admin.isActive) {
+      return res.status(403).json({ message: "Super Admin account is deactivated or not found." });
+    }
+
+    const newToken = jwt.sign(
+      {
+        id: admin.id,
+        email: admin.email,
+        name: admin.name,
+        role: "SUPER_ADMIN",
+        type: "SUPER_ADMIN",
+      },
+      process.env.JWT_SECRET || "secret",
+      { expiresIn: "7d" }
+    );
+
+    const newRefreshToken = jwt.sign(
+      {
+        id: admin.id,
+        email: admin.email,
+        type: "SUPER_ADMIN_REFRESH",
+      },
+      secret,
+      { expiresIn: "30d" }
+    );
+
+    return res.json({
+      token: newToken,
+      refreshToken: newRefreshToken,
+      superAdmin: admin,
+    });
+  } catch (error: any) {
+    console.error("Super Admin refresh error:", error);
+    return res.status(500).json({ message: "Internal server error during token refresh." });
   }
 };
 

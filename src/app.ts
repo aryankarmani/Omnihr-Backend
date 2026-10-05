@@ -18,6 +18,7 @@ import attendanceRoutes from './routes/attendance.routes';
 import leaveRoutes from './routes/leave.routes';
 import reportRoutes from './routes/report.routes';
 import teamRoutes from './routes/team.routes';
+import communicationRoutes from './routes/communication.routes';
 import notificationRoutes from './routes/notification.routes';
 import { authenticate } from './middleware/auth';
 import companySettingRoutes from "./routes/companySetting.routes";
@@ -69,6 +70,7 @@ app.get('/api/health', (req, res) => {
 // });
 
 app.use('/api/chat', chatRoutes);
+app.use('/api/communication', communicationRoutes);
 app.use('/api/employee', employeeRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/masters', mastersRoutes);

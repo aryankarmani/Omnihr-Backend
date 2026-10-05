@@ -4,6 +4,7 @@ import {
         login,
         refreshToken,
         logout,
+        getCaptcha,
         sendOtp,
         verifyOtp,
         resetPassword,
@@ -12,6 +13,9 @@ import {
 import { authenticate } from '../middleware/auth';
 
 const router = Router();
+
+// ✅ Server-Side Cryptographic CAPTCHA
+router.get("/captcha", getCaptcha);
 
 // ✅ Register first/new admin
 router.post("/register", register);

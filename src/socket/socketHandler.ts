@@ -1,0 +1,356 @@
+import { Server as HttpServer } from 'http';
+import { Server as SocketIOServer, Socket } from 'socket.io';
+import jwt from 'jsonwebtoken';
+import { PrismaClient } from '@prisma/client';
+
+const prisma: any = new PrismaClient();
+
+export interface SocketUser {
+    id: number;
+    email: string;
+    tenantId: string;
+    name: string;
+    role?: string;
+}
+
+export interface AuthenticatedSocket extends Socket {
+    data: {
+        user: SocketUser;
+    };
+}
+
+// Track online users per tenant: tenantId -> Map<userId, socketCount>
+const onlineUsers = new Map<string, Map<number, number>>();
+
+let ioInstance: SocketIOServer | null = null;
+
+export const getIO = (): SocketIOServer => {
+    if (!ioInstance) {
+        throw new Error('Socket.IO has not been initialized');
+    }
+    return ioInstance;
+};
+
+export const initSocket = (httpServer: HttpServer) => {
+    const io = new SocketIOServer(httpServer, {
+        cors: {
+            origin: '*',
+            methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+            credentials: true,
+        },
+        pingTimeout: 30000,
+        pingInterval: 10000,
+    });
+
+    ioInstance = io;
+
+    // Authentication middleware
+    io.use(async (rawSocket: Socket, next) => {
+        const socket = rawSocket as AuthenticatedSocket;
+        try {
+            const token =
+                socket.handshake.auth?.token ||
+                socket.handshake.headers?.authorization?.replace('Bearer ', '') ||
+                socket.handshake.query?.token;
+
+            if (!token || typeof token !== 'string') {
+                return next(new Error('Authentication error: Token required'));
+            }
+
+            const decoded = jwt.verify(
+                token,
+                process.env.JWT_SECRET || 'secret'
+            ) as any;
+
+            if (!decoded || !decoded.id || !decoded.tenantId) {
+                return next(new Error('Authentication error: Invalid payload'));
+            }
+
+            // Fetch user basic info
+            const user = await prisma.user.findUnique({
+                where: { id: decoded.id },
+                select: { id: true, email: true, name: true, tenantId: true, isActive: true }
+            });
+
+            if (!user || !user.isActive) {
+                return next(new Error('Authentication error: User inactive or not found'));
+            }
+
+            socket.data.user = {
+                id: user.id,
+                email: user.email,
+                name: user.name,
+                tenantId: user.tenantId,
+                role: decoded.role,
+            };
+
+            next();
+        } catch (err: any) {
+            return next(new Error(`Authentication failed: ${err.message}`));
+        }
+    });
+
+    io.on('connection', (rawSocket: Socket) => {
+        const socket = rawSocket as AuthenticatedSocket;
+        const user = socket.data.user;
+        if (!user) {
+            socket.disconnect(true);
+            return;
+        }
+
+        const tenantId = user.tenantId;
+        const userId = user.id;
+
+        // Join tenant room and personal user room
+        socket.join(`tenant_${tenantId}`);
+        socket.join(`user_${userId}`);
+
+        // Update online presence
+        if (!onlineUsers.has(tenantId)) {
+            onlineUsers.set(tenantId, new Map());
+        }
+        const tenantMap = onlineUsers.get(tenantId)!;
+        const currentCount = tenantMap.get(userId) || 0;
+        tenantMap.set(userId, currentCount + 1);
+
+        // Notify tenant members if newly online
+        if (currentCount === 0) {
+            socket.to(`tenant_${tenantId}`).emit('user_status_changed', {
+                userId,
+                status: 'ONLINE',
+            });
+        }
+
+        // Return current list of online users in this tenant to the connected client
+        socket.emit('online_users_list', Array.from(tenantMap.keys()));
+
+        // --- Room Join / Leave ---
+        socket.on('join_channel', (channelId: number) => {
+            socket.join(`channel_${channelId}`);
+        });
+
+        socket.on('leave_channel', (channelId: number) => {
+            socket.leave(`channel_${channelId}`);
+        });
+
+        socket.on('join_conversation', (conversationId: number) => {
+            socket.join(`conv_${conversationId}`);
+        });
+
+        socket.on('leave_conversation', (conversationId: number) => {
+            socket.leave(`conv_${conversationId}`);
+        });
+
+        // --- Typing Indicators ---
+        socket.on('typing_start', (data: { targetType: 'channel' | 'conversation'; targetId: number }) => {
+            const room = data.targetType === 'channel' ? `channel_${data.targetId}` : `conv_${data.targetId}`;
+            socket.to(room).emit('user_typing', {
+                userId: user.id,
+                name: user.name,
+                targetType: data.targetType,
+                targetId: data.targetId,
+            });
+        });
+
+        socket.on('typing_stop', (data: { targetType: 'channel' | 'conversation'; targetId: number }) => {
+            const room = data.targetType === 'channel' ? `channel_${data.targetId}` : `conv_${data.targetId}`;
+            socket.to(room).emit('user_stop_typing', {
+                userId: user.id,
+                targetType: data.targetType,
+                targetId: data.targetId,
+            });
+        });
+
+        // --- Read Receipts ---
+        socket.on('mark_read', async (data: { messageId?: number; conversationId?: number; channelId?: number }) => {
+            try {
+                if (data && data.conversationId) {
+                    const convId: number = data.conversationId;
+                    await prisma.directConversationMember.updateMany({
+                        where: { conversationId: convId, userId: user.id },
+                        data: { lastReadAt: new Date() }
+                    });
+                    socket.to(`conv_${convId}`).emit('conversation_read', {
+                        conversationId: convId,
+                        userId: user.id,
+                        readAt: new Date()
+                    });
+                }
+            } catch (err) {
+                console.error('[Socket mark_read error]', err);
+            }
+        });
+
+        // --- WebRTC 1:1 Voice & Video Calling Signaling ---
+        socket.on('call_user', async (data: {
+            receiverId: number;
+            callType: 'VOICE' | 'VIDEO';
+            callerName?: string;
+            callerAvatar?: string | null;
+        }) => {
+            try {
+                // Ensure receiver belongs to same tenant
+                const receiver = await prisma.user.findFirst({
+                    where: { id: data.receiverId, tenantId: user.tenantId, isActive: true },
+                    include: { employeeProfile: { select: { avatar: true } } }
+                });
+
+                if (!receiver) {
+                    socket.emit('call_failed', { reason: 'User not found or offline' });
+                    return;
+                }
+
+                // Create CallRecord in DB
+                const callRecord = await prisma.callRecord.create({
+                    data: {
+                        tenantId: user.tenantId,
+                        callerId: user.id,
+                        callType: data.callType,
+                        status: 'INITIATED',
+                        participants: {
+                            create: {
+                                userId: receiver.id,
+                                status: 'JOINED'
+                            }
+                        }
+                    }
+                });
+
+                // Forward incoming call event to receiver's private room
+                io.to(`user_${receiver.id}`).emit('incoming_call', {
+                    callId: callRecord.id,
+                    callerId: user.id,
+                    callerName: user.name,
+                    callerAvatar: data.callerAvatar || null,
+                    callType: data.callType,
+                });
+
+                // Acknowledge to caller that ringing started
+                socket.emit('call_ringing', { callId: callRecord.id });
+            } catch (err) {
+                console.error('[Socket call_user error]', err);
+                socket.emit('call_failed', { reason: 'Could not initiate call' });
+            }
+        });
+
+        socket.on('accept_call', async (data: { callId: number; callerId: number }) => {
+            try {
+                await prisma.callRecord.update({
+                    where: { id: data.callId },
+                    data: { status: 'CONNECTED', startedAt: new Date() }
+                });
+
+                io.to(`user_${data.callerId}`).emit('call_accepted', {
+                    callId: data.callId,
+                    receiverId: user.id,
+                    receiverName: user.name,
+                });
+            } catch (err) {
+                console.error('[Socket accept_call error]', err);
+            }
+        });
+
+        socket.on('reject_call', async (data: { callId: number; callerId: number; reason?: string }) => {
+            try {
+                await prisma.callRecord.update({
+                    where: { id: data.callId },
+                    data: { status: 'REJECTED', endedAt: new Date() }
+                });
+
+                io.to(`user_${data.callerId}`).emit('call_rejected', {
+                    callId: data.callId,
+                    reason: data.reason || 'User busy',
+                });
+            } catch (err) {
+                console.error('[Socket reject_call error]', err);
+            }
+        });
+
+        socket.on('cancel_call', async (data: { callId: number; receiverId: number }) => {
+            try {
+                await prisma.callRecord.update({
+                    where: { id: data.callId },
+                    data: { status: 'MISSED', endedAt: new Date() }
+                });
+
+                io.to(`user_${data.receiverId}`).emit('call_cancelled', {
+                    callId: data.callId,
+                });
+            } catch (err) {
+                console.error('[Socket cancel_call error]', err);
+            }
+        });
+
+        socket.on('end_call', async (data: { callId: number; targetUserId: number; duration?: number }) => {
+            try {
+                const duration = data.duration || 0;
+                await prisma.callRecord.update({
+                    where: { id: data.callId },
+                    data: {
+                        status: 'COMPLETED',
+                        endedAt: new Date(),
+                        duration
+                    }
+                });
+
+                io.to(`user_${data.targetUserId}`).emit('call_ended', {
+                    callId: data.callId,
+                    duration
+                });
+            } catch (err) {
+                console.error('[Socket end_call error]', err);
+            }
+        });
+
+        // WebRTC Signaling Passthrough
+        socket.on('webrtc_offer', (data: { targetUserId: number; offer: any; callId?: number }) => {
+            io.to(`user_${data.targetUserId}`).emit('webrtc_offer', {
+                senderId: user.id,
+                offer: data.offer,
+                callId: data.callId,
+            });
+        });
+
+        socket.on('webrtc_answer', (data: { targetUserId: number; answer: any; callId?: number }) => {
+            io.to(`user_${data.targetUserId}`).emit('webrtc_answer', {
+                senderId: user.id,
+                answer: data.answer,
+                callId: data.callId,
+            });
+        });
+
+        socket.on('webrtc_ice_candidate', (data: { targetUserId: number; candidate: any }) => {
+            io.to(`user_${data.targetUserId}`).emit('webrtc_ice_candidate', {
+                senderId: user.id,
+                candidate: data.candidate,
+            });
+        });
+
+        // Screen share toggle notification
+        socket.on('screen_share_status', (data: { targetUserId: number; isSharing: boolean }) => {
+            io.to(`user_${data.targetUserId}`).emit('screen_share_status', {
+                senderId: user.id,
+                isSharing: data.isSharing,
+            });
+        });
+
+        // Disconnect
+        socket.on('disconnect', () => {
+            const tenantMap = onlineUsers.get(tenantId);
+            if (tenantMap) {
+                const count = (tenantMap.get(userId) || 1) - 1;
+                if (count <= 0) {
+                    tenantMap.delete(userId);
+                    socket.to(`tenant_${tenantId}`).emit('user_status_changed', {
+                        userId,
+                        status: 'OFFLINE',
+                    });
+                } else {
+                    tenantMap.set(userId, count);
+                }
+            }
+        });
+    });
+
+    return io;
+};

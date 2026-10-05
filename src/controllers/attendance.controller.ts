@@ -100,20 +100,111 @@ const getISTTimeParts = (date: Date) => {
     return { hour, minute };
 };
 
+interface ShiftInfo {
+    id?: string;
+    name: string;
+    startTime: string; // HH:mm
+    endTime: string;   // HH:mm
+    breakDuration: number;
+    graceTime: number;
+    isNightShift: boolean;
+}
+
+const getEmployeeShift = async (userId: number, tenantId: string): Promise<ShiftInfo> => {
+    try {
+        const profile = await prisma.employeeProfile.findFirst({
+            where: { userId, tenantId },
+            include: { shiftRef: true },
+        });
+
+        if (profile?.shiftRef) {
+            return {
+                id: profile.shiftRef.id,
+                name: profile.shiftRef.name,
+                startTime: profile.shiftRef.startTime || '09:00',
+                endTime: profile.shiftRef.endTime || '18:00',
+                breakDuration: profile.shiftRef.breakDuration ?? 60,
+                graceTime: profile.shiftRef.graceTime ?? 15,
+                isNightShift: Boolean(profile.shiftRef.isNightShift),
+            };
+        }
+
+        const defaultShift = await prisma.shift.findFirst({
+            where: { tenantId },
+            orderBy: { createdAt: 'asc' },
+        });
+
+        if (defaultShift) {
+            return {
+                id: defaultShift.id,
+                name: defaultShift.name,
+                startTime: defaultShift.startTime || '09:00',
+                endTime: defaultShift.endTime || '18:00',
+                breakDuration: defaultShift.breakDuration ?? 60,
+                graceTime: defaultShift.graceTime ?? 15,
+                isNightShift: Boolean(defaultShift.isNightShift),
+            };
+        }
+    } catch (err) {
+        console.warn('Error resolving shift for user:', userId, err);
+    }
+
+    return {
+        name: 'General Shift',
+        startTime: '09:00',
+        endTime: '18:00',
+        breakDuration: 60,
+        graceTime: 15,
+        isNightShift: false,
+    };
+};
+
+const isPunchInLate = (punchDate: Date, shift: ShiftInfo): boolean => {
+    const { hour: inHour, minute: inMinute } = getISTTimeParts(punchDate);
+    const punchMinutes = inHour * 60 + inMinute;
+
+    const [sHour, sMin] = (shift.startTime || '09:00').split(':').map(Number);
+    const shiftStartMinutes = sHour * 60 + (sMin || 0);
+    const graceMinutes = shift.graceTime ?? 15;
+    const lateCutoff = shiftStartMinutes + graceMinutes;
+
+    if (shift.isNightShift) {
+        if (sHour >= 12) {
+            if (punchMinutes > lateCutoff || punchMinutes < (sHour * 60 - 360)) {
+                return true;
+            }
+        } else {
+            if (punchMinutes > lateCutoff) return true;
+        }
+        return false;
+    }
+
+    return punchMinutes > lateCutoff;
+};
+
 // UPDATED: Calculate attendance status from proposed in/out time
-const calculateRegularizedStatus = (inTime?: Date | null, outTime?: Date | null) => {
+const calculateRegularizedStatus = (
+    inTime?: Date | null,
+    outTime?: Date | null,
+    shift?: ShiftInfo | null
+) => {
     if (!inTime || !outTime) return { status: 'Absent', hours: 0 };
 
     const hours = (outTime.getTime() - inTime.getTime()) / (1000 * 60 * 60);
 
     let status = 'Present';
 
-    const { hour: punchInHour, minute: punchInMinute } = getISTTimeParts(inTime);
-
     if (hours < 4) {
         status = 'Half Day';
-    } else if (punchInHour > 9 || (punchInHour === 9 && punchInMinute > 30)) {
-        status = 'Late';
+    } else if (shift) {
+        if (isPunchInLate(inTime, shift)) {
+            status = 'Late';
+        }
+    } else {
+        const { hour: punchInHour, minute: punchInMinute } = getISTTimeParts(inTime);
+        if (punchInHour > 9 || (punchInHour === 9 && punchInMinute > 30)) {
+            status = 'Late';
+        }
     }
 
     return {
@@ -132,7 +223,9 @@ export const getPunchStatus = async (req: AuthRequest, res: Response) => {
         const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
         const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
-        const [record, todayHoliday] = await Promise.all([
+        const shift = await getEmployeeShift(userId, tenantId);
+
+        let [record, todayHoliday] = await Promise.all([
             prisma.attendanceRecord.findFirst({
                 where: {
                     userId,
@@ -146,6 +239,26 @@ export const getPunchStatus = async (req: AuthRequest, res: Response) => {
                 }
             })
         ]);
+
+        // If today's record doesn't have an active punch, check if yesterday had an open shift (night shift across midnight)
+        if (!record || (!record.inTime || record.outTime)) {
+            const yesterdayDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+            const yesterdayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(yesterdayDate);
+
+            const yesterdayRecord = await prisma.attendanceRecord.findFirst({
+                where: {
+                    userId,
+                    date: yesterdayStr
+                }
+            });
+
+            if (yesterdayRecord?.inTime && !yesterdayRecord?.outTime) {
+                const elapsedHours = (now.getTime() - new Date(yesterdayRecord.inTime).getTime()) / (1000 * 60 * 60);
+                if (elapsedHours < 18) {
+                    record = yesterdayRecord;
+                }
+            }
+        }
 
         // Only block if NOT a holiday (holiday has priority and allows working)
         const approvedLeave = !todayHoliday ? await prisma.leave.findFirst({
@@ -166,7 +279,16 @@ export const getPunchStatus = async (req: AuthRequest, res: Response) => {
             isOnLeave: !!approvedLeave,
             leaveTypeName: approvedLeave?.leaveType?.name || null,
             isHoliday: !!todayHoliday,
-            holidayName: todayHoliday?.name || null
+            holidayName: todayHoliday?.name || null,
+            shift: {
+                id: shift.id,
+                name: shift.name,
+                startTime: shift.startTime,
+                endTime: shift.endTime,
+                breakDuration: shift.breakDuration,
+                graceTime: shift.graceTime,
+                isNightShift: shift.isNightShift,
+            }
         });
     } catch (error: any) {
         res.status(500).json({ message: 'Error fetching punch status', error: error.message });
@@ -180,6 +302,8 @@ export const punchToggle = async (req: AuthRequest, res: Response) => {
         const now = new Date();
         const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(now);
 
+        const shift = await getEmployeeShift(userId, tenantId);
+
         let record = await prisma.attendanceRecord.findUnique({
             where: {
                 userId_date: {
@@ -188,6 +312,28 @@ export const punchToggle = async (req: AuthRequest, res: Response) => {
                 },
             },
         });
+
+        // If today has no open punch, check if yesterday had an open shift (night shift crossing midnight)
+        if (!record || (!record.inTime || record.outTime)) {
+            const yesterdayDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+            const yesterdayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(yesterdayDate);
+
+            const yesterdayRecord = await prisma.attendanceRecord.findUnique({
+                where: {
+                    userId_date: {
+                        userId,
+                        date: yesterdayStr,
+                    },
+                },
+            });
+
+            if (yesterdayRecord?.inTime && !yesterdayRecord?.outTime) {
+                const elapsedHours = (now.getTime() - new Date(yesterdayRecord.inTime).getTime()) / (1000 * 60 * 60);
+                if (elapsedHours < 18) {
+                    record = yesterdayRecord;
+                }
+            }
+        }
 
         const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
         const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
@@ -220,14 +366,9 @@ export const punchToggle = async (req: AuthRequest, res: Response) => {
                 }
             }
 
-            // Punch In
-            // Simple Late Mark Logic: After 09:30 AM IST (India Time) is late
-            let status = 'Present';
-            const { hour: punchInHour, minute: punchInMinute } = getISTTimeParts(now);
-            // 9:30 AM threshold
-            if (punchInHour > 9 || (punchInHour === 9 && punchInMinute > 30)) {
-                status = 'Late';
-            }
+            // Punch In: Evaluate late status dynamically based on employee's shift
+            const isLate = isPunchInLate(now, shift);
+            const status = isLate ? 'Late' : 'Present';
 
             if (record) {
                 record = await prisma.attendanceRecord.update({
@@ -251,8 +392,7 @@ export const punchToggle = async (req: AuthRequest, res: Response) => {
 
             if (status === 'Late') {
                 const title = "Attendance Alert";
-                const message =
-                    "You were marked late today. Please request an attendance correction if needed.";
+                const message = `You were marked late for your ${shift.name} (${shift.startTime}). Please request an attendance correction if needed.`;
 
                 await createNotification({
                     tenantId,
@@ -266,22 +406,30 @@ export const punchToggle = async (req: AuthRequest, res: Response) => {
                 await sendPushNotificationToUser(userId, title, message);
             }
 
-            return res.json({ message: 'Punched in successfully', record });
+            return res.json({ message: 'Punched in successfully', record, shift });
         } if (record.inTime && !record.outTime) {
+            // Punch Out
             const inTime = new Date(record.inTime);
             const hours = (now.getTime() - inTime.getTime()) / (1000 * 60 * 60);
+
+            let status = record.status;
+            if (hours < 4) {
+                status = 'Half Day';
+            }
 
             record = await prisma.attendanceRecord.update({
                 where: { id: record.id },
                 data: {
                     outTime: now,
                     hours: parseFloat(hours.toFixed(2)),
+                    status
                 },
             });
 
             return res.json({
                 message: "Punched out successfully",
                 record,
+                shift
             });
         }
 
@@ -783,9 +931,12 @@ export const approveRegularization = async (req: AuthRequest, res: Response) => 
 
 
 
+        const shift = await getEmployeeShift(request.userId, tenantId);
+
         const { status, hours } = calculateRegularizedStatus(
             request.proposedIn,
-            request.proposedOut
+            request.proposedOut,
+            shift
         );
 
         const result = await prisma.$transaction(async (tx) => {
@@ -1027,7 +1178,8 @@ export const forceRegularizeAttendance = async (req: AuthRequest, res: Response)
         const finalInTime = inTime ? new Date(inTime) : null;
         const finalOutTime = outTime ? new Date(outTime) : null;
 
-        const calculated = calculateRegularizedStatus(finalInTime, finalOutTime);
+        const shift = await getEmployeeShift(userId, tenantId);
+        const calculated = calculateRegularizedStatus(finalInTime, finalOutTime, shift);
 
         const finalStatus = status || calculated.status;
         const finalHours = calculated.hours;

@@ -3,6 +3,7 @@ import { authenticateSuperAdmin } from "../middleware/superadmin.auth";
 import {
   registerSuperAdmin,
   superAdminLogin,
+  refreshSuperAdminToken,
   getSuperAdminProfile,
   changeSuperAdminPassword,
 } from "../controllers/superadmin.auth.controller";
@@ -46,6 +47,7 @@ const router = Router();
 // ==========================================
 router.post("/auth/register", registerSuperAdmin);
 router.post("/auth/login", superAdminLogin);
+router.post("/auth/refresh-token", refreshSuperAdminToken);
 router.get("/auth/profile", authenticateSuperAdmin, getSuperAdminProfile);
 router.post("/auth/change-password", authenticateSuperAdmin, changeSuperAdminPassword);
 
