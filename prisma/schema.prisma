@@ -91,6 +91,12 @@ model Tenant {
   notifications Notification[]
   customFields  CustomField[]
   auditLogs     AuditLog[]
+
+  // Communication & Collaboration Relations
+  commChannels        CommChannel[]
+  directConversations DirectConversation[]
+  chatMessages        ChatMessage[]
+  callRecords         CallRecord[]
 }
 
 model Role {
@@ -177,6 +183,14 @@ model User {
   taxRegimeSelections    TaxRegimeSelection[]
   investmentDeclarations InvestmentDeclaration[]
 
+  // Communication Relations
+  channelMemberships      CommChannelMember[]
+  conversationMemberships DirectConversationMember[]
+  chatMessages            ChatMessage[]
+  chatMessageReads        ChatMessageRead[]
+  callsMade               CallRecord[]               @relation("CallsMade")
+  callsReceived           CallRecordParticipant[]    @relation("CallsReceived")
+
   @@unique([email, tenantId])
 }
 
@@ -241,6 +255,9 @@ model Team {
   accessControl TeamAccessControl?
 
   members TeamMember[]
+
+  // Communication Channels
+  commChannels CommChannel[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1007,3 +1024,156 @@ model DemoRequest {
   @@index([status])
   @@index([createdAt])
 }
+
+// ==========================================
+// TEAMS COMMUNICATION & COLLABORATION MODULE
+// ==========================================
+
+model CommChannel {
+  id          Int      @id @default(autoincrement())
+  tenantId    String
+  teamId      Int?
+  name        String
+  description String?
+  isPrivate   Boolean  @default(false)
+  createdById Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant   Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  team     Team?               @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  messages ChatMessage[]
+  members  CommChannelMember[]
+
+  @@index([tenantId])
+  @@index([teamId])
+}
+
+model CommChannelMember {
+  id        Int      @id @default(autoincrement())
+  channelId Int
+  userId    Int
+  role      String   @default("MEMBER") // ADMIN or MEMBER
+  joinedAt  DateTime @default(now())
+
+  channel CommChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, userId])
+  @@index([userId])
+}
+
+model DirectConversation {
+  id        Int      @id @default(autoincrement())
+  tenantId  String
+  isGroup   Boolean  @default(false)
+  title     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant       Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  participants DirectConversationMember[]
+  messages     ChatMessage[]
+
+  @@index([tenantId])
+}
+
+model DirectConversationMember {
+  id             Int      @id @default(autoincrement())
+  conversationId Int
+  userId         Int
+  lastReadAt     DateTime @default(now())
+
+  conversation DirectConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+}
+
+model ChatMessage {
+  id             Int      @id @default(autoincrement())
+  tenantId       String
+  senderId       Int
+  channelId      Int?
+  conversationId Int?
+  content        String   @db.Text
+  replyToId      Int?
+  isEdited       Boolean  @default(false)
+  isDeleted      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sender       User                @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  channel      CommChannel?        @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  conversation DirectConversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  replyTo      ChatMessage?        @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies      ChatMessage[]       @relation("MessageReplies")
+  attachments  ChatAttachment[]
+  readReceipts ChatMessageRead[]
+
+  @@index([tenantId])
+  @@index([channelId])
+  @@index([conversationId])
+  @@index([senderId])
+}
+
+model ChatAttachment {
+  id        Int      @id @default(autoincrement())
+  messageId Int
+  fileName  String
+  fileUrl   String
+  fileType  String
+  fileSize  Int
+  createdAt DateTime @default(now())
+
+  message ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+}
+
+model ChatMessageRead {
+  id        Int      @id @default(autoincrement())
+  messageId Int
+  userId    Int
+  readAt    DateTime @default(now())
+
+  message ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@index([userId])
+}
+
+model CallRecord {
+  id        Int       @id @default(autoincrement())
+  tenantId  String
+  callerId  Int
+  callType  String    // VOICE or VIDEO
+  status    String    // COMPLETED, MISSED, REJECTED, BUSY
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+  duration  Int       @default(0)
+
+  tenant       Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  caller       User                    @relation("CallsMade", fields: [callerId], references: [id], onDelete: Cascade)
+  participants CallRecordParticipant[]
+
+  @@index([tenantId])
+  @@index([callerId])
+}
+
+model CallRecordParticipant {
+  id     Int    @id @default(autoincrement())
+  callId Int
+  userId Int
+  status String @default("JOINED") // JOINED, MISSED, REJECTED
+
+  call CallRecord @relation(fields: [callId], references: [id], onDelete: Cascade)
+  user User       @relation("CallsReceived", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([callId, userId])
+  @@index([userId])
+}
+
