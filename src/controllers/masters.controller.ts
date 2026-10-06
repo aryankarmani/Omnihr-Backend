@@ -525,6 +525,11 @@ const STANDARD_PERMISSIONS = [
     // 11. MY_PROFILE
     { name: "View My Profile", code: "MY_PROFILE_VIEW", module: "MY_PROFILE", description: "View self profile, documents and credentials" },
     { name: "Edit My Profile", code: "MY_PROFILE_EDIT", module: "MY_PROFILE", description: "Update personal contact info, bank details & avatar" },
+
+    // 12. CHAT
+    { name: "View Chat", code: "CHAT_VIEW", module: "CHAT", description: "Access direct chats and group conversations" },
+    { name: "Create Group & Channels", code: "CHAT_CREATE", module: "CHAT", description: "Create group chats and channels" },
+    { name: "Make Audio / Video Calls", code: "CHAT_CALL", module: "CHAT", description: "Initiate direct and group voice / video calls" },
 ];
 
 export const getPermissions = async (req: Request, res: Response) => {
@@ -536,9 +541,12 @@ export const getPermissions = async (req: Request, res: Response) => {
             ]
         });
 
-        // If permissions are missing, seed standard ones
-        if (permissions.length < STANDARD_PERMISSIONS.length) {
-            for (const p of STANDARD_PERMISSIONS) {
+        // If any standard permissions are missing, seed them
+        const existingCodes = new Set(permissions.map(p => p.code));
+        const missingPermissions = STANDARD_PERMISSIONS.filter(p => !existingCodes.has(p.code));
+
+        if (missingPermissions.length > 0) {
+            for (const p of missingPermissions) {
                 await prisma.permission.upsert({
                     where: { code: p.code },
                     update: { name: p.name, module: p.module, description: p.description },

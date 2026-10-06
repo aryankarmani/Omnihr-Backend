@@ -76,6 +76,11 @@ async function main() {
         // 11. MY_PROFILE
         { name: "View My Profile", code: "MY_PROFILE_VIEW", module: "MY_PROFILE", description: "View self profile, documents and credentials" },
         { name: "Edit My Profile", code: "MY_PROFILE_EDIT", module: "MY_PROFILE", description: "Update personal contact info, bank details & avatar" },
+
+        // 12. CHAT
+        { name: "View Chat", code: "CHAT_VIEW", module: "CHAT", description: "Access direct chats and group conversations" },
+        { name: "Create Group & Channels", code: "CHAT_CREATE", module: "CHAT", description: "Create group chats and channels" },
+        { name: "Make Audio / Video Calls", code: "CHAT_CALL", module: "CHAT", description: "Initiate direct and group voice / video calls" },
     ];
 
     for (const p of permissions) {
@@ -94,7 +99,7 @@ async function main() {
             name: 'HR_ADMIN',
             tenantId: tenant.id,
             accessibleModules:
-            'DASHBOARD,ATTENDANCE,EMPLOYEE,TEAM,LEAVE,REPORTS,MASTERS,TASK,MY_PROFILE,EMPLOYEE_ATTENDANCE',
+            'DASHBOARD,ATTENDANCE,EMPLOYEE,TEAM,CHAT,LEAVE,REPORTS,MASTERS,TASK,MY_PROFILE,EMPLOYEE_ATTENDANCE',
             permissions: { connect: permissions.map(p => ({ code: p.code })) } // Connect all
         }
     });
