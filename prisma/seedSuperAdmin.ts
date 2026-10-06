@@ -74,7 +74,13 @@ async function main() {
 
   // 3. Ensure Existing Tenant has active Enterprise subscription
   const existingTenant = await prisma.tenant.findFirst({
-    where: { domain: "encalm" },
+    where: {
+      OR: [
+        { domain: "blockcoders" },
+        { domain: "encalmit.com" },
+        { domain: "encalm" },
+      ],
+    },
   });
 
   if (existingTenant) {
@@ -133,7 +139,6 @@ async function main() {
 main()
   .catch((e) => {
     console.error(e);
-    process.exit(1);
   })
   .finally(async () => {
     await prisma.$disconnect();

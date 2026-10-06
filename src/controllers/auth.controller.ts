@@ -154,11 +154,14 @@ export const login = async (req: Request, res: Response) => {
       });
     }
 
-    const user = await prisma.user.findFirst({
+    const requestedTenantId = req.body.tenantId || req.headers["x-tenant-id"];
+
+    const candidateUsers = await prisma.user.findMany({
       where: {
         email: email.toLowerCase().trim(),
         isActive: true,
         deletedAt: null,
+        ...(requestedTenantId ? { tenantId: String(requestedTenantId) } : {}),
       },
       include: {
         role: true,
@@ -166,6 +169,21 @@ export const login = async (req: Request, res: Response) => {
         employeeProfile: true,
       },
     });
+
+    let user: any = null;
+    if (candidateUsers.length === 1) {
+      user = candidateUsers[0];
+    } else if (candidateUsers.length > 1) {
+      for (const candidate of candidateUsers) {
+        if (candidate.password && (await bcrypt.compare(password, candidate.password))) {
+          user = candidate;
+          break;
+        }
+      }
+      if (!user) {
+        user = candidateUsers[0];
+      }
+    }
 
 
 

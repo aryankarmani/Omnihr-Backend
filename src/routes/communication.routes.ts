@@ -84,6 +84,14 @@ router.post('/conversations', getOrCreateConversation);
 
 // Messages
 router.get('/messages', getMessages);
+router.get('/conversations/:id/messages', (req: any, res: any) => {
+    req.query.conversationId = req.params.id;
+    getMessages(req, res);
+});
+router.get('/channels/:id/messages', (req: any, res: any) => {
+    req.query.channelId = req.params.id;
+    getMessages(req, res);
+});
 router.post('/messages', sendMessage);
 router.patch('/messages/:id', editMessage);
 router.delete('/messages/:id', deleteMessage);

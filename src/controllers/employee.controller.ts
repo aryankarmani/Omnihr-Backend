@@ -84,7 +84,7 @@ const getFrontendLoginUrl = (req: Request) => {
     return "https://omnihr-frontend.vercel.app/signin";
 };
 
-// Check if an email is already used by any active account
+// Check if an email is already used by an active account in this company
 export const checkEmployeeEmail = async (req: Request, res: Response) => {
     try {
         const rawEmail = (req.query.email as string || '').toLowerCase().trim();
@@ -92,11 +92,18 @@ export const checkEmployeeEmail = async (req: Request, res: Response) => {
             return res.status(400).json({ message: 'Email query parameter is required' });
         }
 
+        const tenantId = (req as any).user?.tenantId;
+        const where: any = {
+            email: { equals: rawEmail, mode: 'insensitive' },
+            deletedAt: null,
+            isActive: true,
+        };
+        if (tenantId) {
+            where.tenantId = tenantId;
+        }
+
         const existingUser = await prisma.user.findFirst({
-            where: {
-                email: { equals: rawEmail, mode: 'insensitive' },
-                deletedAt: null,
-            },
+            where,
             select: { id: true, email: true },
         });
 
@@ -162,11 +169,7 @@ const getOrCreateRoleId = async (
     const cleanRoleName =
         typeof roleName === "string" ? roleName.trim() : "";
 
-    // If frontend sends MANAGER, ignore it and use EMPLOYEE
-    const safeRoleName =
-        cleanRoleName.toUpperCase() === "MANAGER" || !cleanRoleName
-            ? "EMPLOYEE"
-            : cleanRoleName;
+    const safeRoleName = cleanRoleName || "EMPLOYEE";
 
     const role = await prisma.role.findFirst({
         where: {
@@ -378,16 +381,20 @@ export const createEmployee = async (req: Request, res: Response) => {
 
         const normalizedEmail = email.toLowerCase().trim();
 
-        // Check if user already exists anywhere in DB
+        // Check if user already exists in THIS company/tenant (including deleted/inactive accounts)
         const existingUser = await prisma.user.findFirst({
             where: {
                 email: { equals: normalizedEmail, mode: 'insensitive' },
-                deletedAt: null,
+                tenantId,
+            },
+            include: {
+                employeeProfile: true,
             }
         });
 
-        if (existingUser) {
-            return res.status(400).json({ message: 'This email is already in use. Please use a different email address.' });
+        // If an active employee already exists with this email in THIS company, reject
+        if (existingUser && existingUser.isActive && !existingUser.deletedAt) {
+            return res.status(400).json({ message: 'An active employee with this email is already registered in your company. Please use a different email address.' });
         }
 
         // If no roleId provided, find the default 'EMPLOYEE' role
@@ -436,18 +443,33 @@ export const createEmployee = async (req: Request, res: Response) => {
             // ✅ CHANGED: Always generate random password for every employee
             const hashedPassword = await bcrypt.hash(plainPassword, 10);
 
-            // 1. Create User
-            const user = await tx.user.create({
-                data: {
-                    name: name.trim(),
-                    email: normalizedEmail,
-                    password: hashedPassword, // Default password
-                    tenantId,
-                    roleId: finalRoleId,
-                    isActive: true, // ✅ ADDED: ensure login query can find user
-                    deletedAt: null,
-                }
-            });
+            // 1. Create or Reactivate User in this tenant
+            let user: any;
+            if (existingUser) {
+                user = await tx.user.update({
+                    where: { id: existingUser.id },
+                    data: {
+                        name: name.trim(),
+                        email: normalizedEmail,
+                        password: hashedPassword,
+                        roleId: finalRoleId,
+                        isActive: true,
+                        deletedAt: null,
+                    }
+                });
+            } else {
+                user = await tx.user.create({
+                    data: {
+                        name: name.trim(),
+                        email: normalizedEmail,
+                        password: hashedPassword, // Default password
+                        tenantId,
+                        roleId: finalRoleId,
+                        isActive: true, // ✅ ADDED: ensure login query can find user
+                        deletedAt: null,
+                    }
+                });
+            }
 
             const profileData = {
                 phone,
@@ -468,40 +490,96 @@ export const createEmployee = async (req: Request, res: Response) => {
                 deletedAt: null,
             };
 
-            const profile = await tx.employeeProfile.create({
-                data: {
-                    userId: user.id,
-                    tenantId,
-                    ...profileData,
-                    salary: {
-                        create: salaryData,
+            // 2. Create or Update Employee Profile
+            let profile: any;
+            if (existingUser?.employeeProfile) {
+                profile = await tx.employeeProfile.update({
+                    where: { id: existingUser.employeeProfile.id },
+                    data: {
+                        ...profileData,
+                    }
+                });
+
+                // Upsert salary structure
+                await tx.salaryStructure.upsert({
+                    where: { profileId: profile.id },
+                    create: {
+                        profileId: profile.id,
+                        ...salaryData,
                     },
-                },
-            });
+                    update: salaryData,
+                });
 
-            // 3. Create Statutory Details
-            await tx.statutoryDetails.create({
-                data: {
-                    profileId: profile.id,
-                    uan,
-                    pfNumber,
-                    esic,
-                    pan,
-                    aadhaar
-                }
-            });
+                // Upsert Statutory Details
+                await tx.statutoryDetails.upsert({
+                    where: { profileId: profile.id },
+                    create: {
+                        profileId: profile.id,
+                        uan,
+                        pfNumber,
+                        esic,
+                        pan,
+                        aadhaar
+                    },
+                    update: {
+                        uan,
+                        pfNumber,
+                        esic,
+                        pan,
+                        aadhaar
+                    }
+                });
 
-            // 4. Create Bank Details
-            await tx.bankDetails.create({
-                data: {
-                    profileId: profile.id,
-                    bankName: bankName || 'Not Provided',
-                    accountNumber: accountNumber || 'Not Provided',
-                    ifsc: ifsc || 'Not Provided'
-                }
-            });
+                // Upsert Bank Details
+                await tx.bankDetails.upsert({
+                    where: { profileId: profile.id },
+                    create: {
+                        profileId: profile.id,
+                        bankName: bankName || 'Not Provided',
+                        accountNumber: accountNumber || 'Not Provided',
+                        ifsc: ifsc || 'Not Provided'
+                    },
+                    update: {
+                        bankName: bankName || 'Not Provided',
+                        accountNumber: accountNumber || 'Not Provided',
+                        ifsc: ifsc || 'Not Provided'
+                    }
+                });
 
-            // 5. Create Employee Salary Components if provided
+                // Clear prior salary components if re-onboarding
+                await tx.employeeSalaryComponent.deleteMany({
+                    where: { profileId: profile.id, tenantId }
+                });
+            } else {
+                profile = await tx.employeeProfile.create({
+                    data: {
+                        userId: user.id,
+                        tenantId,
+                        ...profileData,
+                        salary: {
+                            create: salaryData,
+                        },
+                        statutory: {
+                            create: {
+                                uan,
+                                pfNumber,
+                                esic,
+                                pan,
+                                aadhaar
+                            }
+                        },
+                        bank: {
+                            create: {
+                                bankName: bankName || 'Not Provided',
+                                accountNumber: accountNumber || 'Not Provided',
+                                ifsc: ifsc || 'Not Provided'
+                            }
+                        }
+                    },
+                });
+            }
+
+            // 3. Create Employee Salary Components if provided
             const incomingSalaryComponents = data.selectedSalaryComponents || data.salaryComponents;
             if (Array.isArray(incomingSalaryComponents) && incomingSalaryComponents.length > 0) {
                 const componentInserts = incomingSalaryComponents
@@ -652,6 +730,12 @@ export const createEmployee = async (req: Request, res: Response) => {
         res.status(201).json(fullEmployee);
     } catch (error: any) {
         console.error('Error creating employee:', error);
+        if (error.code === 'P2002') {
+            return res.status(400).json({
+                message: 'An employee with this email already exists in your company.',
+                error: error.message
+            });
+        }
         res.status(500).json({ message: 'Server error', error: error.message });
     }
 };
@@ -836,11 +920,24 @@ export const updateEmployee = async (req: Request, res: Response) => {
             title || "Employee"
         );
 
+        if (email && email.toLowerCase().trim() !== existingEmployee.email.toLowerCase().trim()) {
+            const emailConflict = await prisma.user.findFirst({
+                where: {
+                    email: { equals: email.toLowerCase().trim(), mode: 'insensitive' },
+                    tenantId,
+                    id: { not: userId },
+                }
+            });
+            if (emailConflict) {
+                return res.status(400).json({ message: "This email is already in use by another employee in your company." });
+            }
+        }
+
         await prisma.user.update({
             where: { id: userId },
             data: {
                 ...(name && { name }),
-                ...(email && { email }),
+                ...(email && { email: email.toLowerCase().trim() }),
                 ...(finalRoleId && { roleId: finalRoleId }),
             },
         });

@@ -29,9 +29,13 @@ import payrollRoutes from "./routes/payroll.routes";
 import superadminRoutes from "./routes/superadmin.routes";
 import publicRoutes from "./routes/public.routes";
 import { initSubscriptionCron } from "./services/subscriptionNotification.service";
+import { initPunchOutReminderCron } from "./services/punchOutReminder.service";
 
 // Initialize SaaS subscription expiry background checker
 initSubscriptionCron();
+
+// Initialize Missed Punch-Out alert background scheduler (checks every 5 mins for shift end + 45 min)
+initPunchOutReminderCron();
 
 app.use(cors());
 app.use(express.json());

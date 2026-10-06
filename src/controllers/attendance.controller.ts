@@ -118,6 +118,7 @@ const getEmployeeShift = async (userId: number, tenantId: string): Promise<Shift
         });
 
         if (profile?.shiftRef) {
+            const isNight = Boolean(profile.shiftRef.isNightShift) || Boolean(profile.shiftRef.startTime && profile.shiftRef.endTime && profile.shiftRef.endTime < profile.shiftRef.startTime);
             return {
                 id: profile.shiftRef.id,
                 name: profile.shiftRef.name,
@@ -125,7 +126,7 @@ const getEmployeeShift = async (userId: number, tenantId: string): Promise<Shift
                 endTime: profile.shiftRef.endTime || '18:00',
                 breakDuration: profile.shiftRef.breakDuration ?? 60,
                 graceTime: profile.shiftRef.graceTime ?? 15,
-                isNightShift: Boolean(profile.shiftRef.isNightShift),
+                isNightShift: isNight,
             };
         }
 
@@ -135,6 +136,7 @@ const getEmployeeShift = async (userId: number, tenantId: string): Promise<Shift
         });
 
         if (defaultShift) {
+            const isNight = Boolean(defaultShift.isNightShift) || Boolean(defaultShift.startTime && defaultShift.endTime && defaultShift.endTime < defaultShift.startTime);
             return {
                 id: defaultShift.id,
                 name: defaultShift.name,
@@ -142,7 +144,7 @@ const getEmployeeShift = async (userId: number, tenantId: string): Promise<Shift
                 endTime: defaultShift.endTime || '18:00',
                 breakDuration: defaultShift.breakDuration ?? 60,
                 graceTime: defaultShift.graceTime ?? 15,
-                isNightShift: Boolean(defaultShift.isNightShift),
+                isNightShift: isNight,
             };
         }
     } catch (err) {

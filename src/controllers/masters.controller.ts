@@ -566,9 +566,6 @@ export const getRoles = async (req: Request, res: Response) => {
         const roles = await prisma.role.findMany({
             where: {
                 tenantId,
-                NOT: {
-                    name: "MANAGER",
-                },
             },
             include: { permissions: true }
         });
@@ -584,10 +581,21 @@ export const createRole = async (req: Request, res: Response) => {
         const { tenantId } = req.user as any;
         const { name, permissionIds = [], accessibleModules = "" } = req.body;
 
-        // ✅ Manager role should not be created from Masters
-        if (String(name).trim().toUpperCase() === "MANAGER") {
+        const trimmedName = String(name || "").trim();
+        if (!trimmedName) {
+            return res.status(400).json({ error: "Role name is required" });
+        }
+
+        // Check if role name already exists for this tenant
+        const existingRole = await prisma.role.findFirst({
+            where: {
+                tenantId,
+                name: { equals: trimmedName, mode: "insensitive" },
+            },
+        });
+        if (existingRole) {
             return res.status(400).json({
-                error: "MANAGER role is not allowed. Manager access is handled from Team Access Control.",
+                error: `Role "${trimmedName}" already exists.`,
             });
         }
 
