@@ -114,8 +114,61 @@ export const getTeams = async (req: AuthRequest, res: Response) => {
       return res.status(401).json({ message: "Unauthorized: tenantId missing" });
     }
 
+    const userRole = req.user?.role?.toUpperCase();
+    const userId = req.user?.id;
+
+    const where: any = { tenantId };
+
+    if (userRole !== "HR_ADMIN" && userRole !== "SUPER_ADMIN" && userId) {
+      where.OR = [
+        { managerId: userId },
+        { members: { some: { userId } } },
+      ];
+    }
+
+    const isPaginated = req.query.page !== undefined || req.query.limit !== undefined;
+
+    if (isPaginated) {
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const limit = Math.max(1, Math.min(100, parseInt(req.query.limit as string) || 6));
+      const skip = (page - 1) * limit;
+
+      const [total, teams] = await Promise.all([
+        prisma.team.count({ where }),
+        prisma.team.findMany({
+          where,
+          include: {
+            manager: {
+              include: { role: true },
+            },
+            members: {
+              include: {
+                user: {
+                  include: { role: true },
+                },
+              },
+            },
+            accessControl: true,
+          },
+          orderBy: { createdAt: "desc" },
+          skip,
+          take: limit,
+        }),
+      ]);
+
+      return res.json({
+        data: teams.map(formatTeam),
+        pagination: {
+          total,
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit) || 1,
+        },
+      });
+    }
+
     const teams = await prisma.team.findMany({
-      where: { tenantId },
+      where,
       include: {
         manager: {
           include: { role: true },
@@ -150,6 +203,18 @@ export const createTeam = async (req: AuthRequest, res: Response) => {
 
     if (!name || !name.trim()) {
       return res.status(400).json({ message: "Team name is required" });
+    }
+
+    const trimmedName = name.trim();
+    const existingTeam = await prisma.team.findFirst({
+      where: {
+        tenantId,
+        name: { equals: trimmedName, mode: "insensitive" }
+      }
+    });
+
+    if (existingTeam) {
+      return res.status(400).json({ message: `Team with name "${trimmedName}" already exists` });
     }
 
     // const team = await prisma.team.create({
