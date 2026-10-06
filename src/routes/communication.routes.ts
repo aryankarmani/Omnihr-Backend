@@ -11,6 +11,8 @@ import {
     addChannelMember,
     removeChannelMember,
     getOrCreateConversation,
+    deleteConversation,
+    leaveConversation,
     getMessages,
     sendMessage,
     editMessage,
@@ -81,6 +83,8 @@ router.delete('/channels/:id/members/:userId', removeChannelMember);
 
 // Conversations (1:1 & Group)
 router.post('/conversations', getOrCreateConversation);
+router.delete('/conversations/:id', deleteConversation);
+router.post('/conversations/:id/leave', leaveConversation);
 
 // Messages
 router.get('/messages', getMessages);

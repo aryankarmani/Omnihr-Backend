@@ -225,6 +225,9 @@ export const initSocket = (httpServer: HttpServer) => {
                     callType: data.callType,
                 });
 
+                // Join caller to call room
+                socket.join(`call_room_${callRecord.id}`);
+
                 // Acknowledge to caller that ringing started
                 socket.emit('call_ringing', { callId: callRecord.id });
             } catch (err) {
@@ -234,7 +237,7 @@ export const initSocket = (httpServer: HttpServer) => {
         });
 
         // Group Call initiation to multiple members
-        socket.on('group_call_user', async (data: { groupTitle: string; participantIds: number[]; callType: 'VOICE' | 'VIDEO'; callerAvatar?: string }) => {
+        socket.on('group_call_user', async (data: { groupTitle: string; participantIds: number[]; callType: 'VOICE' | 'VIDEO'; callerAvatar?: string; conversationId?: number }) => {
             try {
                 const callRecord = await prisma.callRecord.create({
                     data: {
@@ -251,6 +254,9 @@ export const initSocket = (httpServer: HttpServer) => {
                     }
                 });
 
+                // Join host to call room
+                socket.join(`call_room_${callRecord.id}`);
+
                 (data.participantIds || []).forEach(receiverId => {
                     if (receiverId !== user.id) {
                         io.to(`user_${receiverId}`).emit('incoming_call', {
@@ -260,6 +266,7 @@ export const initSocket = (httpServer: HttpServer) => {
                             callerAvatar: data.callerAvatar || null,
                             callType: data.callType,
                             isGroup: true,
+                            conversationId: data.conversationId,
                         });
                     }
                 });
@@ -279,6 +286,7 @@ export const initSocket = (httpServer: HttpServer) => {
                 callerName: data.callTitle ? `${user.name} (${data.callTitle})` : user.name,
                 callerAvatar: data.callerAvatar || null,
                 callType: data.callType || 'VIDEO',
+                isGroup: true,
             });
         });
 
@@ -302,13 +310,29 @@ export const initSocket = (httpServer: HttpServer) => {
             socket.emit('call_chat_message', payload);
         });
 
-        socket.on('accept_call', async (data: { callId: number; callerId: number }) => {
+        socket.on('accept_call', async (data: { callId: number; callerId: number; isGroup?: boolean }) => {
             try {
+                socket.join(`call_room_${data.callId}`);
+
                 await prisma.callRecord.update({
                     where: { id: data.callId },
                     data: { status: 'CONNECTED', startedAt: new Date() }
+                }).catch(() => {});
+
+                await prisma.callRecordParticipant.updateMany({
+                    where: { callId: data.callId, userId: user.id },
+                    data: { status: 'JOINED' }
+                }).catch(() => {});
+
+                // Notify call room that this participant joined
+                io.to(`call_room_${data.callId}`).emit('participant_joined', {
+                    callId: data.callId,
+                    userId: user.id,
+                    userName: user.name,
+                    userAvatar: (user as any).avatar || null,
                 });
 
+                // Also emit call_accepted to caller (backward compatibility & 1:1)
                 io.to(`user_${data.callerId}`).emit('call_accepted', {
                     callId: data.callId,
                     receiverId: user.id,
@@ -319,12 +343,28 @@ export const initSocket = (httpServer: HttpServer) => {
             }
         });
 
-        socket.on('reject_call', async (data: { callId: number; callerId: number; reason?: string }) => {
+        socket.on('reject_call', async (data: { callId: number; callerId: number; reason?: string; isGroup?: boolean }) => {
             try {
+                if (data.isGroup) {
+                    await prisma.callRecordParticipant.updateMany({
+                        where: { callId: data.callId, userId: user.id },
+                        data: { status: 'REJECTED' }
+                    }).catch(() => {});
+
+                    // Only notify the host/caller that this user declined without dropping the call
+                    io.to(`user_${data.callerId}`).emit('participant_declined', {
+                        callId: data.callId,
+                        userId: user.id,
+                        userName: user.name,
+                        reason: data.reason || 'User busy',
+                    });
+                    return;
+                }
+
                 await prisma.callRecord.update({
                     where: { id: data.callId },
                     data: { status: 'REJECTED', endedAt: new Date() }
-                });
+                }).catch(() => {});
 
                 io.to(`user_${data.callerId}`).emit('call_rejected', {
                     callId: data.callId,
@@ -340,7 +380,7 @@ export const initSocket = (httpServer: HttpServer) => {
                 await prisma.callRecord.update({
                     where: { id: data.callId },
                     data: { status: 'MISSED', endedAt: new Date() }
-                });
+                }).catch(() => {});
 
                 io.to(`user_${data.receiverId}`).emit('call_cancelled', {
                     callId: data.callId,
@@ -350,7 +390,37 @@ export const initSocket = (httpServer: HttpServer) => {
             }
         });
 
-        socket.on('end_call', async (data: { callId: number; targetUserId: number; duration?: number }) => {
+        // WhatsApp-style leave group call: only this user leaves
+        socket.on('leave_group_call', async (data: { callId: number }) => {
+            try {
+                socket.leave(`call_room_${data.callId}`);
+
+                await prisma.callRecordParticipant.updateMany({
+                    where: { callId: data.callId, userId: user.id },
+                    data: { status: 'LEFT' }
+                }).catch(() => {});
+
+                // Notify all remaining members in the room
+                socket.to(`call_room_${data.callId}`).emit('participant_left', {
+                    callId: data.callId,
+                    userId: user.id,
+                    userName: user.name,
+                });
+
+                // Check remaining active sockets in this room
+                const roomSockets = await io.in(`call_room_${data.callId}`).fetchSockets();
+                if (roomSockets.length <= 1) {
+                    await prisma.callRecord.update({
+                        where: { id: data.callId },
+                        data: { status: 'COMPLETED', endedAt: new Date() }
+                    }).catch(() => {});
+                }
+            } catch (err) {
+                console.error('[Socket leave_group_call error]', err);
+            }
+        });
+
+        socket.on('end_call', async (data: { callId: number; targetUserId?: number; duration?: number; isGroup?: boolean }) => {
             try {
                 const duration = data.duration || 0;
                 await prisma.callRecord.update({
@@ -360,12 +430,20 @@ export const initSocket = (httpServer: HttpServer) => {
                         endedAt: new Date(),
                         duration
                     }
-                });
+                }).catch(() => {});
 
-                io.to(`user_${data.targetUserId}`).emit('call_ended', {
-                    callId: data.callId,
-                    duration
-                });
+                if (data.isGroup) {
+                    // Host ended call for everyone in room
+                    io.to(`call_room_${data.callId}`).emit('call_ended', {
+                        callId: data.callId,
+                        duration
+                    });
+                } else if (data.targetUserId) {
+                    io.to(`user_${data.targetUserId}`).emit('call_ended', {
+                        callId: data.callId,
+                        duration
+                    });
+                }
             } catch (err) {
                 console.error('[Socket end_call error]', err);
             }
@@ -396,11 +474,83 @@ export const initSocket = (httpServer: HttpServer) => {
         });
 
         // Screen share toggle notification
-        socket.on('screen_share_status', (data: { targetUserId: number; isSharing: boolean }) => {
-            io.to(`user_${data.targetUserId}`).emit('screen_share_status', {
-                senderId: user.id,
-                isSharing: data.isSharing,
-            });
+        socket.on('screen_share_status', (data: { callId?: number; targetUserId?: number; isSharing: boolean }) => {
+            if (data.callId) {
+                socket.to(`call_room_${data.callId}`).emit('screen_share_status', {
+                    callId: data.callId,
+                    senderId: user.id,
+                    isSharing: data.isSharing,
+                });
+            } else if (data.targetUserId) {
+                io.to(`user_${data.targetUserId}`).emit('screen_share_status', {
+                    senderId: user.id,
+                    isSharing: data.isSharing,
+                });
+            }
+        });
+
+        // Rejoin active group call (Google Meet style)
+        socket.on('rejoin_group_call', async (data: { callId: number }) => {
+            try {
+                const call = await prisma.callRecord.findUnique({
+                    where: { id: data.callId }
+                });
+
+                if (!call || call.status === 'COMPLETED' || call.status === 'REJECTED' || call.status === 'MISSED') {
+                    socket.emit('call_failed', { reason: 'This call has already ended' });
+                    return;
+                }
+
+                // Join socket back to call room
+                socket.join(`call_room_${data.callId}`);
+
+                await prisma.callRecordParticipant.upsert({
+                    where: {
+                        callId_userId: {
+                            callId: data.callId,
+                            userId: user.id
+                        }
+                    },
+                    update: { status: 'JOINED' },
+                    create: {
+                        callId: data.callId,
+                        userId: user.id,
+                        status: 'JOINED'
+                    }
+                }).catch(() => {});
+
+                // Notify room members that user rejoined
+                io.to(`call_room_${data.callId}`).emit('participant_joined', {
+                    callId: data.callId,
+                    userId: user.id,
+                    userName: user.name,
+                    userAvatar: (user as any).avatar || null,
+                });
+
+                socket.emit('rejoin_success', {
+                    callId: data.callId,
+                    callType: call.callType,
+                });
+            } catch (err) {
+                console.error('[Socket rejoin_group_call error]', err);
+                socket.emit('call_failed', { reason: 'Could not rejoin call' });
+            }
+        });
+
+        // Hand raise toggle (Google Meet style)
+        socket.on('call_hand_raise', (data: { callId?: number; targetUserId?: number; isRaised: boolean }) => {
+            const payload = {
+                callId: data.callId,
+                userId: user.id,
+                userName: user.name,
+                isRaised: data.isRaised,
+            };
+            if (data.callId) {
+                io.to(`call_room_${data.callId}`).emit('call_hand_raise', payload);
+            } else if (data.targetUserId) {
+                io.to(`user_${data.targetUserId}`).emit('call_hand_raise', payload);
+                socket.emit('call_hand_raise', payload);
+            }
         });
 
         // Disconnect
