@@ -303,10 +303,16 @@ export const getEmployeeOverview = async (req: Request, res: Response) => {
                         email: true,
                     },
                 },
+                shiftRef: true,
             },
             orderBy: {
                 joiningDate: 'desc',
             },
+        });
+
+        const defaultShift = await prisma.shift.findFirst({
+            where: { tenantId },
+            orderBy: { createdAt: 'asc' },
         });
 
         const today = new Date();
@@ -428,12 +434,44 @@ export const getEmployeeOverview = async (req: Request, res: Response) => {
                 const hour = Number(parts.find(p => p.type === 'hour')?.value || 0);
                 const minute = Number(parts.find(p => p.type === 'minute')?.value || 0);
 
-                if (s.includes('LATE') || hour > 9 || (hour === 9 && minute > 30)) {
+                if (s.includes('LATE')) {
                     todayStatus = 'Late';
                     todayStatusType = 'LATE';
-                } else {
+                } else if (s.includes('HALF')) {
+                    todayStatus = 'Half Day';
+                    todayStatusType = 'HALF_DAY';
+                } else if (s.includes('PRESENT')) {
                     todayStatus = 'Present';
                     todayStatusType = 'PRESENT';
+                } else {
+                    // Fallback: calculate status dynamically based on employee's assigned shift
+                    const empShift = emp.shiftRef || defaultShift;
+                    const shiftStart = empShift?.startTime || '09:00';
+                    const grace = empShift?.graceTime ?? 15;
+                    const [sHour, sMinute] = shiftStart.split(':').map(Number);
+                    const shiftStartMinutes = sHour * 60 + (sMinute || 0);
+                    const lateCutoff = shiftStartMinutes + grace;
+                    const punchMinutes = hour * 60 + minute;
+
+                    const isNight = Boolean(empShift?.isNightShift) || Boolean(empShift?.endTime && empShift.endTime < shiftStart);
+                    let isLate = false;
+                    if (isNight) {
+                        if (sHour >= 12) {
+                            isLate = punchMinutes > lateCutoff || punchMinutes < (sHour * 60 - 360);
+                        } else {
+                            isLate = punchMinutes > lateCutoff;
+                        }
+                    } else {
+                        isLate = punchMinutes > lateCutoff;
+                    }
+
+                    if (isLate) {
+                        todayStatus = 'Late';
+                        todayStatusType = 'LATE';
+                    } else {
+                        todayStatus = 'Present';
+                        todayStatusType = 'PRESENT';
+                    }
                 }
             } else if (todayHoliday) {
                 // Official holiday takes priority over leave and unpunched records

@@ -233,6 +233,75 @@ export const initSocket = (httpServer: HttpServer) => {
             }
         });
 
+        // Group Call initiation to multiple members
+        socket.on('group_call_user', async (data: { groupTitle: string; participantIds: number[]; callType: 'VOICE' | 'VIDEO'; callerAvatar?: string }) => {
+            try {
+                const callRecord = await prisma.callRecord.create({
+                    data: {
+                        tenantId: user.tenantId,
+                        callerId: user.id,
+                        callType: data.callType,
+                        status: 'INITIATED',
+                        participants: {
+                            create: (data.participantIds || []).filter(id => id !== user.id).map(receiverId => ({
+                                userId: receiverId,
+                                status: 'JOINED'
+                            }))
+                        }
+                    }
+                });
+
+                (data.participantIds || []).forEach(receiverId => {
+                    if (receiverId !== user.id) {
+                        io.to(`user_${receiverId}`).emit('incoming_call', {
+                            callId: callRecord.id,
+                            callerId: user.id,
+                            callerName: `${user.name} (${data.groupTitle || 'Group'})`,
+                            callerAvatar: data.callerAvatar || null,
+                            callType: data.callType,
+                            isGroup: true,
+                        });
+                    }
+                });
+
+                socket.emit('call_ringing', { callId: callRecord.id });
+            } catch (err) {
+                console.error('[Socket group_call_user error]', err);
+                socket.emit('call_failed', { reason: 'Could not initiate group call' });
+            }
+        });
+
+        // Invite additional user into active call
+        socket.on('invite_to_call', (data: { callId?: number; targetUserId: number; callType?: 'VOICE' | 'VIDEO'; callerAvatar?: string; callTitle?: string }) => {
+            io.to(`user_${data.targetUserId}`).emit('incoming_call', {
+                callId: data.callId || 0,
+                callerId: user.id,
+                callerName: data.callTitle ? `${user.name} (${data.callTitle})` : user.name,
+                callerAvatar: data.callerAvatar || null,
+                callType: data.callType || 'VIDEO',
+            });
+        });
+
+        // In-call chat messages
+        socket.on('call_chat_message', (data: { targetUserIds?: number[]; text: string; senderName?: string; senderAvatar?: string }) => {
+            const payload = {
+                id: 'incall_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+                senderId: user.id,
+                senderName: data.senderName || user.name,
+                senderAvatar: data.senderAvatar || null,
+                text: data.text,
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            };
+            if (data.targetUserIds && Array.isArray(data.targetUserIds)) {
+                data.targetUserIds.forEach(targetId => {
+                    if (targetId !== user.id) {
+                        io.to(`user_${targetId}`).emit('call_chat_message', payload);
+                    }
+                });
+            }
+            socket.emit('call_chat_message', payload);
+        });
+
         socket.on('accept_call', async (data: { callId: number; callerId: number }) => {
             try {
                 await prisma.callRecord.update({
