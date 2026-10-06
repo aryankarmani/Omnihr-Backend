@@ -412,6 +412,109 @@ export const getOrCreateConversation = async (req: AuthRequest, res: Response) =
     }
 };
 
+// 6b. Delete Conversation (1:1 or Group)
+export const deleteConversation = async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.user!.id;
+        const tenantId = req.user!.tenantId;
+        const convId = Number(req.params.id);
+
+        const conv = await prisma.directConversation.findFirst({
+            where: { id: convId, tenantId },
+            include: { participants: true }
+        });
+
+        if (!conv) return res.status(404).json({ message: 'Conversation not found' });
+
+        const isParticipant = conv.participants.some(p => p.userId === userId);
+        const isPlatformAdmin = req.user!.role === 'HR_ADMIN' || req.user!.role === 'SYSTEM_ADMIN';
+
+        if (!isParticipant && !isPlatformAdmin) {
+            return res.status(403).json({ message: 'Not authorized to delete this conversation' });
+        }
+
+        await prisma.directConversation.delete({ where: { id: convId } });
+
+        try {
+            const io = getIO();
+            io.to(`tenant_${tenantId}`).emit('conversation_deleted', { conversationId: convId });
+        } catch (_) {}
+
+        res.json({ message: 'Conversation deleted successfully' });
+    } catch (err: any) {
+        console.error('[Delete conversation error]', err);
+        res.status(500).json({ message: 'Failed to delete conversation', error: err.message });
+    }
+};
+
+// 6c. Leave Group Conversation
+export const leaveConversation = async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.user!.id;
+        const tenantId = req.user!.tenantId;
+        const convId = Number(req.params.id);
+
+        const conv = await prisma.directConversation.findFirst({
+            where: { id: convId, tenantId },
+            include: { participants: { include: { user: { select: userSelect } } } }
+        });
+
+        if (!conv) return res.status(404).json({ message: 'Conversation not found' });
+        if (!conv.isGroup) {
+            return res.status(400).json({ message: 'Cannot leave a direct 1:1 chat. You can delete the chat instead.' });
+        }
+
+        const isMember = conv.participants.some(p => p.userId === userId);
+        if (!isMember) {
+            return res.status(400).json({ message: 'You are not a member of this group' });
+        }
+
+        // Delete membership
+        await prisma.directConversationMember.deleteMany({
+            where: { conversationId: convId, userId }
+        });
+
+        // Check if any members remain
+        const remaining = await prisma.directConversationMember.count({
+            where: { conversationId: convId }
+        });
+
+        if (remaining === 0) {
+            await prisma.directConversation.delete({ where: { id: convId } });
+        } else {
+            // Post system message that user left
+            const leavingUser = conv.participants.find(p => p.userId === userId)?.user?.name || 'A member';
+            const sysMsg = await prisma.chatMessage.create({
+                data: {
+                    tenantId,
+                    senderId: userId,
+                    conversationId: convId,
+                    content: `${leavingUser} left the group`,
+                },
+                include: {
+                    sender: { select: userSelect }
+                }
+            });
+
+            try {
+                const io = getIO();
+                io.to(`conversation_${convId}`).emit('new_message', sysMsg);
+                io.to(`conversation_${convId}`).emit('conversation_member_left', { conversationId: convId, userId });
+            } catch (_) {}
+        }
+
+        try {
+            const io = getIO();
+            io.to(`tenant_${tenantId}`).emit('conversation_updated', { conversationId: convId });
+        } catch (_) {}
+
+        res.json({ message: 'Left group successfully' });
+    } catch (err: any) {
+        console.error('[Leave conversation error]', err);
+        res.status(500).json({ message: 'Failed to leave group', error: err.message });
+    }
+};
+
 // 7. Get Messages (Channel or Conversation)
 export const getMessages = async (req: AuthRequest, res: Response) => {
     try {
