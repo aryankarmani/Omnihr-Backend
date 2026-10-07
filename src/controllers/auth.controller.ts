@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { sendMail, otpTemplate } from "../utils/mail";
+import { STANDARD_PERMISSIONS } from "./masters.controller";
 
 const prisma = new PrismaClient();
 
@@ -130,6 +131,7 @@ export const register = async (req: Request, res: Response) => {
         accessibleModules: user.role?.accessibleModules
           ? user.role.accessibleModules.split(",")
           : [],
+        permissions: (user.role as any)?.permissions?.map((p: any) => p.code) || [],
       },
     });
   } catch (error: any) {
@@ -164,7 +166,11 @@ export const login = async (req: Request, res: Response) => {
         ...(requestedTenantId ? { tenantId: String(requestedTenantId) } : {}),
       },
       include: {
-        role: true,
+        role: {
+          include: {
+            permissions: true,
+          },
+        },
         tenant: true,
         employeeProfile: true,
       },
@@ -242,6 +248,7 @@ export const login = async (req: Request, res: Response) => {
           accessibleModules: user.role?.accessibleModules
             ? user.role.accessibleModules.split(",")
             : [],
+          permissions: user.role?.permissions?.map((p: any) => p.code) || [],
           avatar: user.employeeProfile?.avatar || null,
           profilePicture: user.employeeProfile?.avatar || null,
         },
@@ -291,6 +298,7 @@ export const login = async (req: Request, res: Response) => {
           email: superAdmin.email,
           role: "SUPER_ADMIN",
           forcePasswordChange: superAdmin.forcePasswordChange,
+          permissions: STANDARD_PERMISSIONS.map(p => p.code),
         },
       });
     }

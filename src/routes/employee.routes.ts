@@ -13,15 +13,14 @@ import {
   deleteProfilePicture,
   checkEmployeeEmail
 } from '../controllers/employee.controller';
-import { authenticate, authorize } from '../middleware/auth'; // Assuming auth middleware exists
+import { authenticate, authorize, requirePermission } from '../middleware/auth';
 import { upload } from '../middleware/upload';
-
 
 const router = Router();
 
 router.get('/check-email', authenticate, checkEmployeeEmail);
-router.get('/', authenticate, getAllEmployees);
-router.post('/', authenticate, upload.any(), createEmployee);
+router.get('/', authenticate, requirePermission('EMPLOYEE_VIEW'), getAllEmployees);
+router.post('/', authenticate, requirePermission('EMPLOYEE_CREATE'), upload.any(), createEmployee);
 
 router.get('/me', authenticate, getCurrentEmployee);
 router.put('/me', authenticate, updateEmployee);
@@ -53,9 +52,9 @@ router.delete(
 
 
 // Bulk delete route (placed before /:id)
-router.post('/bulk-delete', authenticate, authorize(["HR_ADMIN", "SYSTEM_ADMIN"]), bulkDeleteEmployees);
+router.post('/bulk-delete', authenticate, requirePermission('EMPLOYEE_DELETE'), bulkDeleteEmployees);
 
-router.get('/:id', authenticate, getEmployee);
-router.put('/:id', authenticate, updateEmployee);
-router.delete('/:id', authenticate, deleteEmployee);
+router.get('/:id', authenticate, requirePermission('EMPLOYEE_VIEW'), getEmployee);
+router.put('/:id', authenticate, requirePermission('EMPLOYEE_UPDATE'), updateEmployee);
+router.delete('/:id', authenticate, requirePermission('EMPLOYEE_DELETE'), deleteEmployee);
 export default router;

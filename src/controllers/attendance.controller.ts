@@ -184,6 +184,43 @@ const isPunchInLate = (punchDate: Date, shift: ShiftInfo): boolean => {
     return punchMinutes > lateCutoff;
 };
 
+const isPunchInAllowed = (now: Date, shift: ShiftInfo): { allowed: boolean; message?: string } => {
+    const { hour, minute } = getISTTimeParts(now);
+    const nowMinutes = hour * 60 + minute;
+
+    const [sHour, sMin] = (shift.startTime || '09:00').split(':').map(Number);
+    const [eHour, eMin] = (shift.endTime || '18:00').split(':').map(Number);
+    const shiftStart = sHour * 60 + (sMin || 0);
+    const shiftEnd = eHour * 60 + (eMin || 0);
+
+    // Punch-in opens 60 minutes before scheduled shift start
+    const windowStart = shiftStart - 60;
+
+    if (shift.isNightShift || shiftEnd < shiftStart) {
+        // Night shift crossing midnight (e.g. 20:00 to 04:00)
+        const inWindow = windowStart < 0
+            ? (nowMinutes >= windowStart + 1440 || nowMinutes <= shiftEnd + 120)
+            : (nowMinutes >= windowStart || nowMinutes <= shiftEnd + 120);
+
+        if (!inWindow) {
+            return {
+                allowed: false,
+                message: `Punch-in is only allowed 1 hour before your shift starts (${shift.startTime}).`,
+            };
+        }
+    } else {
+        // Day shift (e.g. 09:00 to 18:00)
+        if (nowMinutes < windowStart || nowMinutes > shiftEnd + 120) {
+            return {
+                allowed: false,
+                message: `Punch-in is only allowed 1 hour before your shift starts (${shift.startTime}).`,
+            };
+        }
+    }
+
+    return { allowed: true };
+};
+
 // UPDATED: Calculate attendance status from proposed in/out time
 const calculateRegularizedStatus = (
     inTime?: Date | null,
@@ -273,10 +310,14 @@ export const getPunchStatus = async (req: AuthRequest, res: Response) => {
             include: { leaveType: true }
         }) : null;
 
+        const punchCheck = (!record || !record.inTime) ? isPunchInAllowed(now, shift) : { allowed: true };
+
         return res.json({
             isPunchedIn: !!(record?.inTime && !record?.outTime),
             punchInTime: record?.inTime || null,
             punchOutTime: record?.outTime || null,
+            canPunchIn: punchCheck.allowed,
+            punchInMessage: punchCheck.message || null,
             status: record?.status || null,
             isOnLeave: !!approvedLeave,
             leaveTypeName: approvedLeave?.leaveType?.name || null,
@@ -352,6 +393,12 @@ export const punchToggle = async (req: AuthRequest, res: Response) => {
         });
 
         if (!record || !record.inTime) {
+            // Check shift punch-in window: Only allowed starting 1 hour before shift
+            const punchCheck = isPunchInAllowed(now, shift);
+            if (!punchCheck.allowed) {
+                return res.status(400).json({ message: punchCheck.message });
+            }
+
             // Block punch-in if on approved leave, EXCEPT if today is an official holiday
             if (!todayHoliday) {
                 const approvedLeave = await prisma.leave.findFirst({

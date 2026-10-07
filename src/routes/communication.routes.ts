@@ -2,7 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { authenticate } from '../middleware/auth';
+import { authenticate, requirePermission } from '../middleware/auth';
 import {
     getCommunicationBootstrap,
     createChannel,
@@ -72,14 +72,14 @@ const upload = multer({
 router.use(authenticate);
 
 // Bootstrap data
-router.get('/bootstrap', getCommunicationBootstrap);
+router.get('/bootstrap', requirePermission('CHAT_VIEW'), getCommunicationBootstrap);
 
 // Channels
-router.post('/channels', createChannel);
-router.patch('/channels/:id', updateChannel);
-router.delete('/channels/:id', deleteChannel);
-router.post('/channels/:id/members', addChannelMember);
-router.delete('/channels/:id/members/:userId', removeChannelMember);
+router.post('/channels', requirePermission('CHAT_CREATE'), createChannel);
+router.patch('/channels/:id', requirePermission('CHAT_CREATE'), updateChannel);
+router.delete('/channels/:id', requirePermission('CHAT_CREATE'), deleteChannel);
+router.post('/channels/:id/members', requirePermission('CHAT_CREATE'), addChannelMember);
+router.delete('/channels/:id/members/:userId', requirePermission('CHAT_CREATE'), removeChannelMember);
 
 // Conversations (1:1 & Group)
 router.post('/conversations', getOrCreateConversation);

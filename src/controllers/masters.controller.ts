@@ -473,7 +473,7 @@ export const updateAttendancePolicy = async (req: Request, res: Response) => {
 };
 
 // ACCESS CONTROL
-const STANDARD_PERMISSIONS = [
+export const STANDARD_PERMISSIONS = [
     // 1. DASHBOARD
     { name: "View Dashboard", code: "DASHBOARD_VIEW", module: "DASHBOARD", description: "View analytics overview and key metrics" },
     { name: "Export Dashboard", code: "DASHBOARD_EXPORT", module: "DASHBOARD", description: "Export dashboard summary data and reports" },
@@ -633,7 +633,7 @@ export const createRole = async (req: Request, res: Response) => {
                 where: { id: { in: permissionIds } }
             });
             validPermissionIds = requestedPermissions
-                .filter(p => cleanModules.includes(p.module.toUpperCase()))
+                .filter(p => cleanModules.includes(normalizeModule(p.module)))
                 .map(p => p.id);
         }
        
@@ -689,7 +689,7 @@ export const updateRole = async (req: Request, res: Response) => {
                 where: { id: { in: permissionIds } }
             });
             validPermissionIds = requestedPermissions
-                .filter(p => cleanModules.includes(p.module.toUpperCase()))
+                .filter(p => cleanModules.includes(normalizeModule(p.module)))
                 .map(p => p.id);
         }
 
@@ -699,8 +699,7 @@ export const updateRole = async (req: Request, res: Response) => {
                 name: String(name).trim(),
                 accessibleModules: accessibleModulesStr,
                 permissions: {
-                    set: [],
-                    connect: validPermissionIds.map((pid: string) => ({ id: pid }))
+                    set: validPermissionIds.map((pid: string) => ({ id: pid }))
                 }
             },
             include: { permissions: true }
