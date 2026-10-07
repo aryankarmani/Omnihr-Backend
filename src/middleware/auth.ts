@@ -87,10 +87,72 @@ export const authorize = (allowedRoles: string[]) => {
 
     if (!allowedRoles.includes(role)) {
       return res.status(403).json({
-        message: "You do not have permission to perform this action",
+        code: "PERMISSION_DENIED",
+        message: "You don't have access to this",
       });
     }
 
     next();
   };
 };
+
+// Central Granular Permission Middleware
+export const requirePermission = (permissionCode: string) => {
+  return async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const role = String(user.role || "").toUpperCase();
+      // Super Admins automatically bypass permission checks
+      if (role === "SUPER_ADMIN") {
+        return next();
+      }
+
+      // Check DB permissions for user's role
+      const dbUser = await prisma.user.findUnique({
+        where: { id: user.id },
+        select: {
+          role: {
+            select: {
+              name: true,
+              permissions: {
+                select: { code: true }
+              }
+            }
+          }
+        }
+      });
+
+      if (!dbUser || !dbUser.role) {
+        return res.status(403).json({
+          code: "PERMISSION_DENIED",
+          message: "You don't have access to this"
+        });
+      }
+
+      const hasCode = dbUser.role.permissions.some(p => p.code === permissionCode);
+      if (!hasCode) {
+        // Fallback safety: Allow company administrators to manage roles/masters in Access Control so they never get locked out of role configuration
+        if (
+          permissionCode === "MASTERS_MANAGE" &&
+          (role === "HR_ADMIN" || role === "ADMIN" || role === "SYSTEM_ADMIN")
+        ) {
+          return next();
+        }
+
+        return res.status(403).json({
+          code: "PERMISSION_DENIED",
+          message: "You don't have access to this"
+        });
+      }
+
+      next();
+    } catch (err: any) {
+      console.error("[requirePermission error]", err);
+      return res.status(500).json({ message: "Internal authorization error" });
+    }
+  };
+};

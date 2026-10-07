@@ -124,6 +124,12 @@ export const initSocket = (httpServer: HttpServer) => {
         // Return current list of online users in this tenant to the connected client
         socket.emit('online_users_list', Array.from(tenantMap.keys()));
 
+        // Allow client to fetch current online users at any time (e.g. ChatHub mount, page navigation)
+        socket.on('get_online_users', () => {
+            const currentTenantMap = onlineUsers.get(tenantId);
+            socket.emit('online_users_list', currentTenantMap ? Array.from(currentTenantMap.keys()) : []);
+        });
+
         // --- Room Join / Leave ---
         socket.on('join_channel', (channelId: number) => {
             socket.join(`channel_${channelId}`);
@@ -189,6 +195,20 @@ export const initSocket = (httpServer: HttpServer) => {
             callerAvatar?: string | null;
         }) => {
             try {
+                // Check granular permission for caller
+                const callerRole = String(user.role || '').toUpperCase();
+                if (callerRole !== 'SUPER_ADMIN') {
+                    const dbCaller = await prisma.user.findUnique({
+                        where: { id: user.id },
+                        select: { role: { select: { permissions: { select: { code: true } } } } }
+                    });
+                    const hasCallPerm = dbCaller?.role?.permissions.some(p => p.code === 'CHAT_CALL');
+                    if (!hasCallPerm) {
+                        socket.emit('call_failed', { reason: 'You do not have permission to initiate calls (CHAT_CALL required).' });
+                        return;
+                    }
+                }
+
                 // Ensure receiver belongs to same tenant
                 const receiver = await prisma.user.findFirst({
                     where: { id: data.receiverId, tenantId: user.tenantId, isActive: true },
@@ -239,6 +259,20 @@ export const initSocket = (httpServer: HttpServer) => {
         // Group Call initiation to multiple members
         socket.on('group_call_user', async (data: { groupTitle: string; participantIds: number[]; callType: 'VOICE' | 'VIDEO'; callerAvatar?: string; conversationId?: number }) => {
             try {
+                // Check granular permission for caller
+                const callerRole = String(user.role || '').toUpperCase();
+                if (callerRole !== 'SUPER_ADMIN') {
+                    const dbCaller = await prisma.user.findUnique({
+                        where: { id: user.id },
+                        select: { role: { select: { permissions: { select: { code: true } } } } }
+                    });
+                    const hasCallPerm = dbCaller?.role?.permissions.some(p => p.code === 'CHAT_CALL');
+                    if (!hasCallPerm) {
+                        socket.emit('call_failed', { reason: 'You do not have permission to initiate calls (CHAT_CALL required).' });
+                        return;
+                    }
+                }
+
                 const callRecord = await prisma.callRecord.create({
                     data: {
                         tenantId: user.tenantId,
@@ -560,7 +594,7 @@ export const initSocket = (httpServer: HttpServer) => {
                 const count = (tenantMap.get(userId) || 1) - 1;
                 if (count <= 0) {
                     tenantMap.delete(userId);
-                    socket.to(`tenant_${tenantId}`).emit('user_status_changed', {
+                    io.to(`tenant_${tenantId}`).emit('user_status_changed', {
                         userId,
                         status: 'OFFLINE',
                     });

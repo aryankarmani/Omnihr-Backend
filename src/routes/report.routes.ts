@@ -1,6 +1,6 @@
 
 import { Router } from "express";
-
+import { authenticate, requirePermission } from "../middleware/auth";
 import {
   getDashboard,
   getAttendance,
@@ -9,29 +9,32 @@ import {
   exportMonthlyAttendance,
   exportLeaveBalance,
   exportSalaryRegister,
-  
-
 } from "../controllers/report.controller";
 
 const router = Router();
+
+router.use(authenticate);
 
 // ================= REPORT APIs =================
 
 // Dashboard
 router.get(
   "/dashboard",
+  requirePermission('REPORTS_VIEW'),
   getDashboard
 );
 
 // Attendance analytics
 router.get(
   "/attendance",
+  requirePermission('REPORTS_VIEW'),
   getAttendance
 );
 
 // Payroll analytics
 router.get(
   "/payroll",
+  requirePermission('REPORTS_VIEW'),
   getPayroll
 );
 
@@ -40,18 +43,21 @@ router.get(
 // CSV Attendance Export
 router.get(
   "/export/attendance",
+  requirePermission('REPORTS_EXPORT'),
   exportMonthlyAttendance
 );
 
 // PDF Salary Export
 router.get(
   "/export/salary",
+  requirePermission('REPORTS_EXPORT'),
   exportSalaryRegister
 );
 
 // Excel Leave Export
 router.get(
   "/export/leave",
+  requirePermission('REPORTS_EXPORT'),
   exportLeaveBalance
 );
 
