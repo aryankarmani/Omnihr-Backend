@@ -1,5 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 
+declare const process: any;
+
 const prisma = new PrismaClient();
 
 const permissions = [
@@ -12,7 +14,7 @@ const permissions = [
     // Attendance
     { name: 'View Attendance', code: 'ATTENDANCE_VIEW', module: 'ATTENDANCE' },
     { name: 'Edit Attendance', code: 'ATTENDANCE_EDIT', module: 'ATTENDANCE' },
-    { name: 'Regularize Attendance', code: 'ATTENDANCE_REGULARIZE', module: 'ATTENDANCE' },
+    { name: 'Correction', code: 'ATTENDANCE_REGULARIZE', module: 'ATTENDANCE' },
 
     // Leave
     { name: 'View Leaves', code: 'LEAVE_VIEW', module: 'LEAVE' },
