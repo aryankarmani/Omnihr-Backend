@@ -2,6 +2,8 @@ import { Router } from 'express';
 import {
     getPunchStatus,
     punchToggle,
+    breakIn,
+    breakOut,
     getAttendanceHistory,
     getAttendanceStats,
     applyRegularization,
@@ -19,6 +21,8 @@ router.use(authenticate);
 
 router.get('/status', getPunchStatus);
 router.post('/punch', punchToggle);
+router.post('/break/in', breakIn);
+router.post('/break/out', breakOut);
 router.get('/history', getAttendanceHistory);
 router.get('/stats', getAttendanceStats);
 
@@ -27,9 +31,9 @@ router.post('/regularize', requirePermission('ATTENDANCE_REGULARIZE'), applyRegu
 router.get('/regularize/my-requests', getMyRegularizationRequests);
 
 // UPDATED: Admin regularization routes
-router.get('/regularize/pending', requirePermission('ATTENDANCE_APPROVE'), getPendingRegularizations);
+router.get('/regularize/pending', requirePermission(['ATTENDANCE_APPROVE', 'ATTENDANCE_REJECT']), getPendingRegularizations);
 router.put('/regularize/:id/approve', requirePermission('ATTENDANCE_APPROVE'), approveRegularization);
-router.put('/regularize/:id/reject', requirePermission('ATTENDANCE_APPROVE'), rejectRegularization);
+router.put('/regularize/:id/reject', requirePermission('ATTENDANCE_REJECT'), rejectRegularization);
 
 // UPDATED: Admin direct override / force regularize
 router.post('/regularize/bypass', requirePermission('EMPLOYEE_ATTENDANCE_MANAGE'), forceRegularizeAttendance);

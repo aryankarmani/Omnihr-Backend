@@ -4,6 +4,7 @@ import { notifyAdmins, createNotification } from '../utils/notification';
 import { getManagerTeamMemberIds } from "../utils/teamScope";
 import { sendPushNotificationToUser } from "./pushNotification.controller";
 import { createAuditLog } from "../utils/auditLog";
+import { checkUserHasPermission } from "../middleware/auth";
 
 const prisma = new PrismaClient();
 
@@ -178,9 +179,16 @@ export const getLeaveHistory = async (req: Request, res: Response) => {
 
         if (!userId || !tenantId) return res.status(401).json({ message: 'Unauthorized' });
 
-        // If HR_ADMIN and employeeId given, return that specific employee's leaves
-        if (employeeId && userRole === 'HR_ADMIN') {
+        const isSuperAdmin = userRole === 'SUPER_ADMIN';
+        const isAdmin = userRole === 'HR_ADMIN' || userRole === 'ADMIN' || userRole === 'SYSTEM_ADMIN' || isSuperAdmin;
+        const hasApprovalPerm = isAdmin || await checkUserHasPermission(userId, ['LEAVE_APPROVE', 'LEAVE_REJECT', 'LEAVE_VIEW']);
+
+        // If employeeId given, return that specific employee's leaves
+        if (employeeId) {
             const targetUserId = Number(employeeId);
+            if (!hasApprovalPerm && targetUserId !== userId) {
+                return res.status(403).json({ message: "You don't have access to this" });
+            }
             const leaves = await prisma.leave.findMany({
                 where: { userId: targetUserId, tenantId },
                 include: { leaveType: true, user: { select: { id: true, name: true, email: true, employeeProfile: true } } },
@@ -189,26 +197,27 @@ export const getLeaveHistory = async (req: Request, res: Response) => {
             return res.json(leaves);
         }
 
-        // If HR_ADMIN and all=true, return all leaves for the tenant
+        // If all=true, return all leaves for the tenant if permitted, or manager scoped
         let whereClause: any = {
             userId,
             tenantId,
         };
 
-        if (all === "true" && userRole === "HR_ADMIN") {
-            whereClause = { tenantId };
-        }
-
-        // NEW: MANAGER scoped leave approvals
-        if (all === "true" && userRole === "MANAGER") {
-            const memberIds = await getManagerTeamMemberIds(tenantId, userId);
-
-            whereClause = {
-                tenantId,
-                userId: {
-                    in: memberIds,
-                },
-            };
+        if (all === "true") {
+            if (hasApprovalPerm) {
+                whereClause = { tenantId };
+            } else {
+                // MANAGER scoped leave approvals
+                const memberIds = await getManagerTeamMemberIds(tenantId, userId);
+                if (memberIds.length > 0) {
+                    whereClause = {
+                        tenantId,
+                        userId: {
+                            in: memberIds,
+                        },
+                    };
+                }
+            }
         }
 
         const leaves = await prisma.leave.findMany({

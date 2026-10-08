@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
+import { checkUserHasPermission } from '../middleware/auth';
 
 const prisma = new PrismaClient();
 
@@ -110,7 +111,10 @@ export const getEmployeeCustomFields = async (req: Request, res: Response) => {
         const isAdmin = currentUser?.role === 'HR_ADMIN' || currentUser?.role === 'ADMIN' || currentUser?.role === 'SYSTEM_ADMIN' || isSuperAdmin;
 
         if (!isAdmin && Number(currentUser?.id) !== Number(userId)) {
-            return res.status(403).json({ error: "Access denied" });
+            const canView = await checkUserHasPermission(currentUser.id, 'EMPLOYEE_VIEW');
+            if (!canView) {
+                return res.status(403).json({ error: "Access denied" });
+            }
         }
 
         const profile = await prisma.employeeProfile.findFirst({
@@ -155,7 +159,20 @@ export const updateEmployeeCustomFields = async (req: Request, res: Response) =>
         const { id } = req.params; // userId
         const { customFields = {} } = req.body; // e.g. { [fieldId]: "value" }
 
-        const userId = id === 'me' ? (req.user as any).id : Number(id);
+        const currentUser = req.user as any;
+        const userId = id === 'me' ? currentUser.id : Number(id);
+
+        const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
+        const isAdmin = currentUser?.role === 'HR_ADMIN' || currentUser?.role === 'ADMIN' || currentUser?.role === 'SYSTEM_ADMIN' || isSuperAdmin;
+        if (!isAdmin) {
+            if (Number(currentUser?.id) === Number(userId)) {
+                const canEditSelf = await checkUserHasPermission(currentUser.id, 'MY_PROFILE_EDIT');
+                if (!canEditSelf) return res.status(403).json({ error: "Access denied" });
+            } else {
+                const canUpdateOther = await checkUserHasPermission(currentUser.id, 'EMPLOYEE_UPDATE');
+                if (!canUpdateOther) return res.status(403).json({ error: "Access denied" });
+            }
+        }
 
         const profile = await prisma.employeeProfile.findFirst({
             where: { userId, tenantId, isActive: true, deletedAt: null }
@@ -199,7 +216,20 @@ export const uploadCustomFieldDocument = async (req: Request, res: Response) => 
             return res.status(400).json({ error: "No file uploaded" });
         }
 
-        const userId = id === 'me' ? (req.user as any).id : Number(id);
+        const currentUser = req.user as any;
+        const userId = id === 'me' ? currentUser.id : Number(id);
+
+        const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
+        const isAdmin = currentUser?.role === 'HR_ADMIN' || currentUser?.role === 'ADMIN' || currentUser?.role === 'SYSTEM_ADMIN' || isSuperAdmin;
+        if (!isAdmin) {
+            if (Number(currentUser?.id) === Number(userId)) {
+                const canEditSelf = await checkUserHasPermission(currentUser.id, 'MY_PROFILE_EDIT');
+                if (!canEditSelf) return res.status(403).json({ error: "Access denied" });
+            } else {
+                const canUpdateOther = await checkUserHasPermission(currentUser.id, 'EMPLOYEE_UPDATE');
+                if (!canUpdateOther) return res.status(403).json({ error: "Access denied" });
+            }
+        }
 
         const profile = await prisma.employeeProfile.findFirst({
             where: { userId, tenantId, isActive: true, deletedAt: null }

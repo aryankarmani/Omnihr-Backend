@@ -4,6 +4,7 @@ import { createNotification, notifyAdmins } from '../utils/notification';
 import { getManagerTeamMemberIds, isAdminOrManager } from "../utils/teamScope";
 import { createAuditLog } from "../utils/auditLog";
 import { sendPushNotificationToUser } from "./pushNotification.controller";
+import { checkUserHasPermission } from "../middleware/auth";
 
 const prisma = new PrismaClient();
 
@@ -75,7 +76,12 @@ const canAccessEmployeeRegularization = async (
 ): Promise<boolean> => {
 
     // HR Admin can access all employees
-    if (isAdmin(loggedInUser)) {
+    if (isAdmin(loggedInUser) || loggedInUser?.role === 'SUPER_ADMIN') {
+        return true;
+    }
+
+    const hasApprovePerm = await checkUserHasPermission(loggedInUser.id, ['ATTENDANCE_APPROVE', 'ATTENDANCE_REJECT']);
+    if (hasApprovePerm) {
         return true;
     }
 
@@ -265,10 +271,15 @@ export const getPunchStatus = async (req: AuthRequest, res: Response) => {
         const shift = await getEmployeeShift(userId, tenantId);
 
         let [record, todayHoliday] = await Promise.all([
-            prisma.attendanceRecord.findFirst({
+            (prisma.attendanceRecord as any).findFirst({
                 where: {
                     userId,
                     date: today
+                },
+                include: {
+                    breaks: {
+                        orderBy: { startTime: 'asc' }
+                    }
                 }
             }),
             prisma.holiday.findFirst({
@@ -284,10 +295,15 @@ export const getPunchStatus = async (req: AuthRequest, res: Response) => {
             const yesterdayDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
             const yesterdayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(yesterdayDate);
 
-            const yesterdayRecord = await prisma.attendanceRecord.findFirst({
+            const yesterdayRecord = await (prisma.attendanceRecord as any).findFirst({
                 where: {
                     userId,
                     date: yesterdayStr
+                },
+                include: {
+                    breaks: {
+                        orderBy: { startTime: 'asc' }
+                    }
                 }
             });
 
@@ -310,12 +326,40 @@ export const getPunchStatus = async (req: AuthRequest, res: Response) => {
             include: { leaveType: true }
         }) : null;
 
-        const punchCheck = (!record || !record.inTime) ? isPunchInAllowed(now, shift) : { allowed: true };
+        const hasPunchedOut = Boolean(record?.inTime && record?.outTime);
+        const punchCheck = hasPunchedOut
+            ? { allowed: false, message: "You have already completed your punch out for today." }
+            : (!record || !record.inTime)
+                ? isPunchInAllowed(now, shift)
+                : { allowed: true };
+
+        const breaks = record?.breaks || [];
+        const activeBreak = breaks.find((b: any) => !b.endTime) || null;
+        const isOnBreak = !!activeBreak;
+        const totalBreakMinutes = record?.totalBreakMinutes ?? breaks.reduce((sum: number, b: any) => sum + (b.duration || 0), 0);
+
+        let grossWorkingHours = 0;
+        let netWorkingHours = 0;
+        if (record?.inTime) {
+            const end = record.outTime ? new Date(record.outTime) : now;
+            grossWorkingHours = Math.max(0, (end.getTime() - new Date(record.inTime).getTime()) / (1000 * 60 * 60));
+            netWorkingHours = Math.max(0, grossWorkingHours - (totalBreakMinutes / 60));
+        }
 
         return res.json({
             isPunchedIn: !!(record?.inTime && !record?.outTime),
+            isPunchedOut: hasPunchedOut,
             punchInTime: record?.inTime || null,
             punchOutTime: record?.outTime || null,
+            isOnBreak,
+            activeBreak: activeBreak ? {
+                id: activeBreak.id,
+                startTime: activeBreak.startTime,
+            } : null,
+            totalBreakMinutes,
+            grossWorkingHours: parseFloat(grossWorkingHours.toFixed(2)),
+            netWorkingHours: parseFloat(netWorkingHours.toFixed(2)),
+            breaks,
             canPunchIn: punchCheck.allowed,
             punchInMessage: punchCheck.message || null,
             status: record?.status || null,
@@ -335,6 +379,180 @@ export const getPunchStatus = async (req: AuthRequest, res: Response) => {
         });
     } catch (error: any) {
         res.status(500).json({ message: 'Error fetching punch status', error: error.message });
+    }
+};
+
+export const breakIn = async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.user.id;
+        const tenantId = req.user.tenantId;
+        const now = new Date();
+        const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(now);
+
+        let record: any = await (prisma.attendanceRecord as any).findUnique({
+            where: {
+                userId_date: {
+                    userId,
+                    date: today,
+                },
+            },
+            include: {
+                breaks: true,
+            },
+        });
+
+        // Check if yesterday had an open shift (night shift crossing midnight)
+        if (!record || (!record.inTime || record.outTime)) {
+            const yesterdayDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+            const yesterdayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(yesterdayDate);
+
+            const yesterdayRecord = await (prisma.attendanceRecord as any).findUnique({
+                where: {
+                    userId_date: {
+                        userId,
+                        date: yesterdayStr,
+                    },
+                },
+                include: {
+                    breaks: true,
+                },
+            });
+
+            if (yesterdayRecord?.inTime && !yesterdayRecord?.outTime) {
+                const elapsedHours = (now.getTime() - new Date(yesterdayRecord.inTime).getTime()) / (1000 * 60 * 60);
+                if (elapsedHours < 18) {
+                    record = yesterdayRecord;
+                }
+            }
+        }
+
+        if (!record || !record.inTime || record.outTime) {
+            return res.status(400).json({
+                message: "You must be punched in to take a break.",
+            });
+        }
+
+        const openBreak = (record?.breaks || []).find((b: any) => !b.endTime);
+        if (openBreak) {
+            return res.status(400).json({
+                message: "You are already on an active break.",
+            });
+        }
+
+        // Business Rule: Exactly 1 break allowed per shift/day
+        if ((record?.breaks || []).length >= 1) {
+            return res.status(400).json({
+                message: "You have already taken your break for today. Only 1 break is allowed per shift.",
+            });
+        }
+
+        const newBreak = await (prisma as any).attendanceBreak.create({
+            data: {
+                attendanceRecordId: record.id,
+                startTime: now,
+            },
+        });
+
+        return res.json({
+            message: "Break started successfully",
+            break: newBreak,
+            recordId: record.id,
+        });
+    } catch (error: any) {
+        res.status(500).json({
+            message: "Error starting break",
+            error: error.message,
+        });
+    }
+};
+
+export const breakOut = async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.user.id;
+        const tenantId = req.user.tenantId;
+        const now = new Date();
+        const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(now);
+
+        let record: any = await (prisma.attendanceRecord as any).findUnique({
+            where: {
+                userId_date: {
+                    userId,
+                    date: today,
+                },
+            },
+            include: {
+                breaks: true,
+            },
+        });
+
+        // Check if yesterday had an open shift (night shift crossing midnight)
+        if (!record || (!record.inTime || record.outTime)) {
+            const yesterdayDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+            const yesterdayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(yesterdayDate);
+
+            const yesterdayRecord = await (prisma.attendanceRecord as any).findUnique({
+                where: {
+                    userId_date: {
+                        userId,
+                        date: yesterdayStr,
+                    },
+                },
+                include: {
+                    breaks: true,
+                },
+            });
+
+            if (yesterdayRecord?.inTime && !yesterdayRecord?.outTime) {
+                const elapsedHours = (now.getTime() - new Date(yesterdayRecord.inTime).getTime()) / (1000 * 60 * 60);
+                if (elapsedHours < 18) {
+                    record = yesterdayRecord;
+                }
+            }
+        }
+
+        if (!record || !record.inTime || record.outTime) {
+            return res.status(400).json({
+                message: "No active punched in session found.",
+            });
+        }
+
+        const openBreak = (record?.breaks || []).find((b: any) => !b.endTime);
+        if (!openBreak) {
+            return res.status(400).json({
+                message: "No active break found to end.",
+            });
+        }
+
+        const durationMinutes = Math.max(0, Math.round((now.getTime() - new Date(openBreak.startTime).getTime()) / (1000 * 60)));
+
+        const updatedBreak = await (prisma as any).attendanceBreak.update({
+            where: { id: openBreak.id },
+            data: {
+                endTime: now,
+                duration: durationMinutes,
+            },
+        });
+
+        const allBreaks = await (prisma as any).attendanceBreak.findMany({
+            where: { attendanceRecordId: record.id },
+        });
+        const totalBreakMinutes = allBreaks.reduce((sum: number, b: any) => sum + (b.duration || 0), 0);
+
+        await (prisma.attendanceRecord as any).update({
+            where: { id: record.id },
+            data: { totalBreakMinutes },
+        });
+
+        return res.json({
+            message: "Break ended successfully",
+            break: updatedBreak,
+            totalBreakMinutes,
+        });
+    } catch (error: any) {
+        res.status(500).json({
+            message: "Error ending break",
+            error: error.message,
+        });
     }
 };
 
@@ -458,19 +676,46 @@ export const punchToggle = async (req: AuthRequest, res: Response) => {
             return res.json({ message: 'Punched in successfully', record, shift });
         } if (record.inTime && !record.outTime) {
             // Punch Out
+            // If user is currently on break, auto-close the active break at punch out time
+            const openBreak = await (prisma as any).attendanceBreak.findFirst({
+                where: {
+                    attendanceRecordId: record.id,
+                    endTime: null,
+                },
+            });
+
+            if (openBreak) {
+                const breakDuration = Math.max(0, Math.round((now.getTime() - new Date(openBreak.startTime).getTime()) / (1000 * 60)));
+                await (prisma as any).attendanceBreak.update({
+                    where: { id: openBreak.id },
+                    data: {
+                        endTime: now,
+                        duration: breakDuration,
+                    },
+                });
+            }
+
+            // Calculate total break minutes
+            const allBreaks = await (prisma as any).attendanceBreak.findMany({
+                where: { attendanceRecordId: record.id },
+            });
+            const totalBreakMinutes = allBreaks.reduce((sum: number, b: any) => sum + (b.duration || 0), 0);
+
             const inTime = new Date(record.inTime);
-            const hours = (now.getTime() - inTime.getTime()) / (1000 * 60 * 60);
+            const grossHours = (now.getTime() - inTime.getTime()) / (1000 * 60 * 60);
+            const netHours = Math.max(0, grossHours - (totalBreakMinutes / 60));
 
             let status = record.status;
-            if (hours < 4) {
+            if (netHours < 4) {
                 status = 'Half Day';
             }
 
-            record = await prisma.attendanceRecord.update({
+            record = await (prisma.attendanceRecord as any).update({
                 where: { id: record.id },
                 data: {
                     outTime: now,
-                    hours: parseFloat(hours.toFixed(2)),
+                    hours: parseFloat(netHours.toFixed(2)),
+                    totalBreakMinutes,
                     status
                 },
             });
@@ -498,40 +743,81 @@ export const getAttendanceHistory = async (req: AuthRequest, res: Response) => {
         const loggedInUser = req.user;
         const employeeIdQuery = req.query.employeeId ? Number(req.query.employeeId) : null;
 
-        // Security: Only HR_ADMIN can view other employees' attendance
+        // Security: Only HR_ADMIN or SUPER_ADMIN can view other employees' attendance
         let userId = loggedInUser.id;
-        if (employeeIdQuery && loggedInUser.role === 'HR_ADMIN') {
+        if (employeeIdQuery && (loggedInUser.role === 'HR_ADMIN' || loggedInUser.role?.name === 'HR_ADMIN' || (loggedInUser as any)?.role === 'SUPER_ADMIN')) {
             userId = employeeIdQuery;
         }
 
         const now = new Date();
         const year = req.query.year || now.getFullYear().toString();
         const month = req.query.month || (now.getMonth() + 1).toString();
+        const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(now);
 
         const datePrefix = `${year}-${String(month).padStart(2, '0')}`;
 
-        const records = await prisma.attendanceRecord.findMany({
+        const records = await (prisma.attendanceRecord as any).findMany({
             where: {
                 userId,
                 date: {
                     startsWith: datePrefix
                 }
             },
+            include: {
+                breaks: {
+                    orderBy: { startTime: 'asc' }
+                }
+            },
             orderBy: {
                 date: 'asc'
             }
         });
-        const formattedRecords = records.map((record) => {
-            let computedHours = record.hours;
-            if (computedHours == null && record.inTime && record.outTime) {
-                computedHours = parseFloat(
-                    ((new Date(record.outTime).getTime() - new Date(record.inTime).getTime()) / (1000 * 60 * 60)).toFixed(2)
-                );
+
+        const formattedRecords = records.map((record: any) => {
+            const inTime = record.inTime ? new Date(record.inTime) : null;
+            const outTime = record.outTime ? new Date(record.outTime) : null;
+            const breaks = record.breaks || [];
+
+            let totalBreakMins = record.totalBreakMinutes || 0;
+            if (breaks.length > 0) {
+                totalBreakMins = breaks.reduce((sum: number, b: any) => {
+                    if (b.duration != null && b.duration > 0) {
+                        return sum + b.duration;
+                    }
+                    if (b.startTime && !b.endTime) {
+                        const ongoingMins = Math.max(0, Math.round((now.getTime() - new Date(b.startTime).getTime()) / 60000));
+                        return sum + ongoingMins;
+                    }
+                    return sum;
+                }, 0);
             }
+
+            let grossHours = 0;
+            if (inTime) {
+                const end = outTime || (record.date === todayStr ? now : null);
+                if (end) {
+                    grossHours = Math.max(0, (end.getTime() - inTime.getTime()) / (1000 * 60 * 60));
+                }
+            }
+
+            let computedNetHours = record.hours;
+            if (computedNetHours == null && inTime) {
+                computedNetHours = Math.max(0, grossHours - (totalBreakMins / 60));
+            } else if (computedNetHours != null) {
+                computedNetHours = Number(computedNetHours);
+            }
+
+            const netHoursFloat = computedNetHours != null ? parseFloat(Number(computedNetHours).toFixed(2)) : 0;
+            const grossHoursFloat = parseFloat(grossHours.toFixed(2));
+
             return {
                 ...record,
-                hours: computedHours ?? 0,
-                totalHours: computedHours ?? 0,
+                hours: netHoursFloat,
+                totalHours: netHoursFloat,
+                netHours: netHoursFloat,
+                grossHours: grossHoursFloat,
+                totalBreakMinutes: totalBreakMins,
+                breaks: record.breaks || [],
                 inTime: record.inTime,
                 outTime: record.outTime,
                 clockIn: record.inTime,
@@ -680,6 +966,12 @@ export const applyRegularization = async (req: AuthRequest, res: Response) => {
             // also supports proposedIn/proposedOut if later used
             proposedIn,
             proposedOut,
+
+            // break correction additions
+            correctionType,
+            proposedBreakStart,
+            proposedBreakEnd,
+            breakTime,
         } = req.body;
 
         if (!date || !reason) {
@@ -700,6 +992,10 @@ export const applyRegularization = async (req: AuthRequest, res: Response) => {
             return d;
         };
 
+        const isBreakIn = correctionType === 'BREAK_IN' || reason.includes('Break In');
+        const isBreakOut = correctionType === 'BREAK_OUT' || reason.includes('Break Out');
+        const derivedType = isBreakIn ? 'BREAK_IN' : isBreakOut ? 'BREAK_OUT' : (correctionType || 'PUNCH');
+
         const finalInTime = proposedIn
             ? new Date(proposedIn)
             : parseTime(date, inTime);
@@ -707,6 +1003,18 @@ export const applyRegularization = async (req: AuthRequest, res: Response) => {
         const finalOutTime = proposedOut
             ? new Date(proposedOut)
             : parseTime(date, outTime);
+
+        const finalBreakStart = proposedBreakStart
+            ? new Date(proposedBreakStart)
+            : isBreakIn
+                ? parseTime(date, breakTime || inTime)
+                : null;
+
+        const finalBreakEnd = proposedBreakEnd
+            ? new Date(proposedBreakEnd)
+            : isBreakOut
+                ? parseTime(date, breakTime || outTime)
+                : null;
 
         const [y, m, d] = date.split('-').map(Number);
         const targetDate = new Date(y, m - 1, d);
@@ -769,14 +1077,17 @@ export const applyRegularization = async (req: AuthRequest, res: Response) => {
             },
         });
 
-        const request = await prisma.attendanceRegularization.create({
+        const request: any = await (prisma.attendanceRegularization as any).create({
             data: {
                 tenantId,
                 userId,
                 date,
                 reason,
+                correctionType: derivedType,
                 proposedIn: finalInTime ? new Date(finalInTime) : null,
                 proposedOut: finalOutTime ? new Date(finalOutTime) : null,
+                proposedBreakStart: finalBreakStart ? new Date(finalBreakStart) : null,
+                proposedBreakEnd: finalBreakEnd ? new Date(finalBreakEnd) : null,
                 attendanceRecordId: attendanceRecord?.id || null,
                 status: 'PENDING',
             },
@@ -799,7 +1110,7 @@ export const applyRegularization = async (req: AuthRequest, res: Response) => {
         });
 
         const title = "Attendance Correction Request";
-        const message = `${request.user?.name || request.user?.email || "Employee"
+        const message = `${(request as any).user?.name || (request as any).user?.email || "Employee"
             } submitted an attendance correction request for ${date}.`;
 
         // ✅ OLD: In-app notification to admins
@@ -823,12 +1134,12 @@ export const applyRegularization = async (req: AuthRequest, res: Response) => {
             tenantId,
             module: "Correction",
             action: "Requested",
-            description: `${request.user?.name || "Employee"} submitted an attendance correction request for ${date}.`,
+            description: `${(request as any).user?.name || "Employee"} submitted an attendance correction request for ${date}.`,
             performedById: userId,
-            performedBy: request.user?.name || "Employee",
+            performedBy: (request as any).user?.name || "Employee",
             performedByRole: req.user?.role,
             targetUserId: userId,
-            targetUser: request.user?.name || "Employee",
+            targetUser: (request as any).user?.name || "Employee",
             targetUserRole: "EMPLOYEE",
         });
 
@@ -886,11 +1197,12 @@ export const getPendingRegularizations = async (req: AuthRequest, res: Response)
             whereClause.status = "PENDING";
         }
 
-        // ✅ CHANGED: HR admin sees all, manager sees only own team
-        if (!isAdmin(req.user)) {
+        // HR admin and users with ATTENDANCE_APPROVE see all, manager sees only own team
+        const isSuperAdmin = (req.user as any)?.role === 'SUPER_ADMIN';
+        const hasFullAccess = isAdmin(req.user) || isSuperAdmin || await checkUserHasPermission(userId, ['ATTENDANCE_APPROVE', 'ATTENDANCE_REJECT']);
 
+        if (!hasFullAccess) {
             const memberIds = await getManagerTeamMemberIds(tenantId, userId);
-
 
             if (memberIds.length === 0) {
                 return res.status(403).json({
@@ -946,7 +1258,7 @@ export const approveRegularization = async (req: AuthRequest, res: Response) => 
         const approverId = req.user.id;
         const { id } = req.params;
 
-        const request = await prisma.attendanceRegularization.findFirst({
+        const request: any = await prisma.attendanceRegularization.findFirst({
             where: {
                 id: Number(id),
                 tenantId,
@@ -982,35 +1294,102 @@ export const approveRegularization = async (req: AuthRequest, res: Response) => 
 
         const shift = await getEmployeeShift(request.userId, tenantId);
 
-        const { status, hours } = calculateRegularizedStatus(
-            request.proposedIn,
-            request.proposedOut,
-            shift
-        );
-
         const result = await prisma.$transaction(async (tx) => {
-            const attendance = await tx.attendanceRecord.upsert({
+            // Find or create attendance record first
+            let attendance: any = await (tx.attendanceRecord as any).findUnique({
                 where: {
                     userId_date: {
                         userId: request.userId,
                         date: request.date,
                     },
                 },
-                create: {
-                    userId: request.userId,
-                    tenantId,
-                    date: request.date,
-                    inTime: request.proposedIn,
-                    outTime: request.proposedOut,
-                    hours,
-                    status,
+                include: { breaks: true }
+            });
+
+            if (!attendance) {
+                attendance = await (tx.attendanceRecord as any).create({
+                    data: {
+                        userId: request.userId,
+                        tenantId,
+                        date: request.date,
+                        status: 'Present',
+                    },
+                    include: { breaks: true }
+                });
+            }
+
+            // Check if this is a break correction
+            const isBreakIn = request.correctionType === 'BREAK_IN' || request.reason.includes('Break In');
+            const isBreakOut = request.correctionType === 'BREAK_OUT' || request.reason.includes('Break Out');
+
+            if (isBreakIn) {
+                const startTime = request.proposedBreakStart || request.proposedIn || new Date();
+                await (tx as any).attendanceBreak.create({
+                    data: {
+                        attendanceRecordId: attendance.id,
+                        startTime,
+                    }
+                });
+            } else if (isBreakOut) {
+                const endTime = request.proposedBreakEnd || request.proposedOut || new Date();
+                // Find open break without endTime
+                const openBreak = (attendance as any)?.breaks?.find((b: any) => !b.endTime);
+                if (openBreak) {
+                    const dur = Math.max(0, Math.round((new Date(endTime).getTime() - new Date(openBreak.startTime).getTime()) / 60000));
+                    await (tx as any).attendanceBreak.update({
+                        where: { id: openBreak.id },
+                        data: { endTime, duration: dur }
+                    });
+                } else {
+                    // Create a break record with configured shift duration
+                    const defaultDur = shift.breakDuration || 60;
+                    const startTime = new Date(new Date(endTime).getTime() - defaultDur * 60000);
+                    await (tx as any).attendanceBreak.create({
+                        data: {
+                            attendanceRecordId: attendance.id,
+                            startTime,
+                            endTime,
+                            duration: defaultDur
+                        }
+                    });
+                }
+            } else {
+                // Regular punch in / out correction
+                const newInTime = request.proposedIn || attendance.inTime;
+                const newOutTime = request.proposedOut || attendance.outTime;
+                const { status, hours } = calculateRegularizedStatus(newInTime, newOutTime, shift);
+
+                attendance = await (tx.attendanceRecord as any).update({
+                    where: { id: attendance.id },
+                    data: {
+                        inTime: newInTime,
+                        outTime: newOutTime,
+                        hours,
+                        status,
+                    },
+                    include: { breaks: true }
+                });
+            }
+
+            // Recalculate total breaks and net hours
+            const allBreaks = await (tx as any).attendanceBreak.findMany({
+                where: { attendanceRecordId: attendance.id }
+            });
+            const totalBreakMinutes = allBreaks.reduce((sum: number, b: any) => sum + (b.duration || 0), 0);
+
+            let netHours = attendance.hours;
+            if (attendance.inTime && attendance.outTime) {
+                const gross = (new Date(attendance.outTime).getTime() - new Date(attendance.inTime).getTime()) / (1000 * 60 * 60);
+                netHours = parseFloat(Math.max(0, gross - (totalBreakMinutes / 60)).toFixed(2));
+            }
+
+            attendance = await (tx.attendanceRecord as any).update({
+                where: { id: attendance.id },
+                data: {
+                    totalBreakMinutes,
+                    hours: netHours,
                 },
-                update: {
-                    inTime: request.proposedIn,
-                    outTime: request.proposedOut,
-                    hours,
-                    status,
-                },
+                include: { breaks: true }
             });
 
             const updatedRequest = await tx.attendanceRegularization.update({
@@ -1077,7 +1456,7 @@ export const rejectRegularization = async (req: AuthRequest, res: Response) => {
         const { id } = req.params;
         const { reason } = req.body;
 
-        const request = await prisma.attendanceRegularization.findFirst({
+        const request: any = await prisma.attendanceRegularization.findFirst({
             where: {
                 id: Number(id),
                 tenantId,
@@ -1176,19 +1555,6 @@ export const forceRegularizeAttendance = async (req: AuthRequest, res: Response)
                 message: 'Only admin can directly correct attendance',
             });
         }
-        // ✅ ADDED: check whether logged-in user can access target employee
-        const canAccessEmployeeRegularization = async (
-            tenantId: string,
-            loggedInUser: any,
-            targetUserId: number
-        ) => {
-            if (isAdmin(loggedInUser)) return true;
-
-            const memberIds = await getManagerTeamMemberIds(tenantId, loggedInUser.id);
-
-            return memberIds.includes(targetUserId);
-        };
-
 
         const {
             employeeId,

@@ -1,6 +1,8 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 
+declare const process: any;
+
 const prisma = new PrismaClient();
 
 async function main() {
@@ -26,61 +28,53 @@ async function main() {
     // ];
     const permissions = [
         // 1. DASHBOARD
-        { name: "View Dashboard", code: "DASHBOARD_VIEW", module: "DASHBOARD", description: "View analytics overview and key metrics" },
+        { name: "View Dashboard", code: "DASHBOARD_VIEW", module: "DASHBOARD", description: "View analytics overview, charts and key metrics" },
         { name: "Export Dashboard", code: "DASHBOARD_EXPORT", module: "DASHBOARD", description: "Export dashboard summary data and reports" },
 
         // 2. ATTENDANCE (My Attendance)
-        { name: "View My Attendance", code: "ATTENDANCE_VIEW", module: "ATTENDANCE", description: "View self attendance logs, shifts & hours" },
-        { name: "Regularize Attendance", code: "ATTENDANCE_REGULARIZE", module: "ATTENDANCE", description: "Apply for attendance regularizations" },
-        { name: "Approve Attendance", code: "ATTENDANCE_APPROVE", module: "ATTENDANCE", description: "Approve attendance regularization requests" },
+        { name: "View My Attendance", code: "ATTENDANCE_VIEW", module: "ATTENDANCE", description: "View personal punch-in/out logs, shift timing & calendar" },
+        { name: "Regularize Attendance", code: "ATTENDANCE_REGULARIZE", module: "ATTENDANCE", description: "Request punch regularizations for self" },
 
-        // 3. EMPLOYEE_ATTENDANCE
-        { name: "View Employee Attendance", code: "EMPLOYEE_ATTENDANCE_VIEW", module: "EMPLOYEE_ATTENDANCE", description: "View organizational and team member attendance records" },
-        { name: "Manage Employee Attendance", code: "EMPLOYEE_ATTENDANCE_MANAGE", module: "EMPLOYEE_ATTENDANCE", description: "Manual attendance override, shift assignments & approvals" },
-
-        // 4. EMPLOYEE (Employee List)
+        // 3. EMPLOYEE (Employee List, Corrections, Leave Approvals)
         { name: "View Employees", code: "EMPLOYEE_VIEW", module: "EMPLOYEE", description: "View employee directory, profiles & employment info" },
         { name: "Create Employee", code: "EMPLOYEE_CREATE", module: "EMPLOYEE", description: "Onboard and create new employee records" },
         { name: "Update Employee", code: "EMPLOYEE_UPDATE", module: "EMPLOYEE", description: "Edit employee profiles, designations & details" },
         { name: "Delete Employee", code: "EMPLOYEE_DELETE", module: "EMPLOYEE", description: "Deactivate or remove employee profiles" },
+        { name: "Approve Attendance Correction", code: "ATTENDANCE_APPROVE", module: "EMPLOYEE", description: "Approve employee attendance regularization requests" },
+        { name: "Reject Attendance Correction", code: "ATTENDANCE_REJECT", module: "EMPLOYEE", description: "Reject employee attendance regularization requests" },
+        { name: "Manual Attendance Override", code: "EMPLOYEE_ATTENDANCE_MANAGE", module: "EMPLOYEE", description: "Manual attendance override, bypass punch & shift management" },
+        { name: "Approve Leave", code: "LEAVE_APPROVE", module: "EMPLOYEE", description: "Approve pending employee leave requests" },
+        { name: "Reject Leave", code: "LEAVE_REJECT", module: "EMPLOYEE", description: "Reject employee leave requests with comments" },
 
-        // 5. TEAM
+        // 4. TEAM
         { name: "View Team", code: "TEAM_VIEW", module: "TEAM", description: "View department teams, members & managers" },
         { name: "Create Team", code: "TEAM_CREATE", module: "TEAM", description: "Create new teams and project groups" },
         { name: "Update Team", code: "TEAM_UPDATE", module: "TEAM", description: "Assign managers, edit teams and restructure members" },
         { name: "Manage Team Access Control", code: "TEAM_ACCESS_CONTROL", module: "TEAM", description: "Configure manager permissions and boundary controls" },
 
-        // 6. LEAVE
-        { name: "View Leave", code: "LEAVE_VIEW", module: "LEAVE", description: "View leave balances and leave requests" },
-        { name: "Apply Leave", code: "LEAVE_APPLY", module: "LEAVE", description: "Submit leave applications for self" },
-        { name: "Approve Leave", code: "LEAVE_APPROVE", module: "LEAVE", description: "Approve pending leave requests" },
-        { name: "Reject Leave", code: "LEAVE_REJECT", module: "LEAVE", description: "Reject leave requests with comments" },
-
-        // 7. PAYROLL
-        { name: "View Payroll", code: "PAYROLL_VIEW", module: "PAYROLL", description: "View payroll summaries and salary structures" },
-        { name: "Process Payroll", code: "PAYROLL_PROCESS", module: "PAYROLL", description: "Execute monthly payroll runs and statutory deductions" },
-        { name: "Download Payroll", code: "PAYROLL_DOWNLOAD", module: "PAYROLL", description: "Download payslips, tax sheets & bank export files" },
-
-        // 8. REPORTS
-        { name: "View Reports", code: "REPORTS_VIEW", module: "REPORTS", description: "Access standard HR and attendance reports" },
-        { name: "Export Reports", code: "REPORTS_EXPORT", module: "REPORTS", description: "Export custom analytics, Excel & PDF reports" },
-
-        // 9. MASTERS
-        { name: "View Masters", code: "MASTERS_VIEW", module: "MASTERS", description: "View organizational masters, policies & statutory settings" },
-        { name: "Manage Masters", code: "MASTERS_MANAGE", module: "MASTERS", description: "Configure companies, branches, designations & roles" },
-
-        // 10. TASK
-        { name: "View Tasks", code: "TASK_VIEW", module: "TASK", description: "View assigned tasks and project boards" },
-        { name: "Manage Tasks", code: "TASK_MANAGE", module: "TASK", description: "Create, assign, update and close tasks" },
-
-        // 11. MY_PROFILE
-        { name: "View My Profile", code: "MY_PROFILE_VIEW", module: "MY_PROFILE", description: "View self profile, documents and credentials" },
-        { name: "Edit My Profile", code: "MY_PROFILE_EDIT", module: "MY_PROFILE", description: "Update personal contact info, bank details & avatar" },
-
-        // 12. CHAT
+        // 5. CHAT
         { name: "View Chat", code: "CHAT_VIEW", module: "CHAT", description: "Access direct chats and group conversations" },
         { name: "Create Group & Channels", code: "CHAT_CREATE", module: "CHAT", description: "Create group chats and channels" },
         { name: "Make Audio / Video Calls", code: "CHAT_CALL", module: "CHAT", description: "Initiate direct and group voice / video calls" },
+
+        // 6. LEAVE (My Leave)
+        { name: "View Leave", code: "LEAVE_VIEW", module: "LEAVE", description: "View personal leave balances and leave requests" },
+        { name: "Apply Leave", code: "LEAVE_APPLY", module: "LEAVE", description: "Submit leave applications for self" },
+
+        // 7. REPORTS
+        { name: "View Reports", code: "REPORTS_VIEW", module: "REPORTS", description: "Access standard HR and attendance reports" },
+        { name: "Export Reports", code: "REPORTS_EXPORT", module: "REPORTS", description: "Export custom analytics, Excel & PDF reports" },
+
+        // 8. MASTERS
+        { name: "View Masters", code: "MASTERS_VIEW", module: "MASTERS", description: "View organizational masters, policies & statutory settings" },
+        { name: "Manage Masters", code: "MASTERS_MANAGE", module: "MASTERS", description: "Configure companies, branches, designations & roles" },
+
+        // 9. LOG
+        { name: "View Logs", code: "LOG_VIEW", module: "LOG", description: "View audit trail and system activity logs" },
+
+        // 10. MY_PROFILE
+        { name: "View My Profile", code: "MY_PROFILE_VIEW", module: "MY_PROFILE", description: "View self profile, documents and credentials" },
+        { name: "Edit My Profile", code: "MY_PROFILE_EDIT", module: "MY_PROFILE", description: "Update personal contact info, bank details & avatar" },
     ];
 
     for (const p of permissions) {
