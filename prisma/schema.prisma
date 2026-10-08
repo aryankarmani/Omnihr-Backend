@@ -778,14 +778,33 @@ model AttendanceRecord {
 
   // UPDATED: Link approved correction requests to attendance record
   regularizationRequests AttendanceRegularization[]
+  breaks                 AttendanceBreak[]
 
-  date    String // YYYY-MM-DD
-  inTime  DateTime?
-  outTime DateTime?
-  status  String
-  hours   Float?
+  date              String // YYYY-MM-DD
+  inTime            DateTime?
+  outTime           DateTime?
+  status            String
+  hours             Float?
+  totalBreakMinutes Int       @default(0)
 
   @@unique([userId, date], name: "userId_date")
+}
+
+// ✅ Break sessions for attendance record (supports multiple breaks)
+model AttendanceBreak {
+  id                 Int              @id @default(autoincrement())
+  attendanceRecordId Int
+  attendanceRecord   AttendanceRecord @relation(fields: [attendanceRecordId], references: [id], onDelete: Cascade)
+
+  startTime DateTime
+  endTime   DateTime?
+  duration  Int? // Duration in minutes
+  type      String    @default("REGULAR") // REGULAR, LUNCH, TEA
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([attendanceRecordId])
 }
 
 // UPDATED: Attendance regularization request table
@@ -802,10 +821,13 @@ model AttendanceRegularization {
   attendanceRecordId Int?
   attendanceRecord   AttendanceRecord? @relation(fields: [attendanceRecordId], references: [id])
 
-  date        String // YYYY-MM-DD
-  proposedIn  DateTime?
-  proposedOut DateTime?
-  reason      String
+  date               String // YYYY-MM-DD
+  proposedIn         DateTime?
+  proposedOut        DateTime?
+  correctionType     String    @default("PUNCH") // PUNCH, BREAK_IN, BREAK_OUT, FULL_DAY
+  proposedBreakStart DateTime?
+  proposedBreakEnd   DateTime?
+  reason             String
 
   status          String    @default("PENDING") // PENDING, APPROVED, REJECTED
   approverComment String?

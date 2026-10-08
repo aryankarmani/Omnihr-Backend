@@ -10,8 +10,8 @@ router.get("/test", (req, res) => {
 
 router.use(authenticate);
 
-router.get('/balances', requirePermission('LEAVE_VIEW'), getLeaveBalances);
-router.get('/history', requirePermission('LEAVE_VIEW'), getLeaveHistory);
+router.get('/balances', getLeaveBalances);
+router.get('/history', getLeaveHistory);
 router.post('/apply', requirePermission('LEAVE_APPLY'), applyLeave);
 router.post("/", requirePermission('LEAVE_APPLY'), applyLeave);
 router.put('/:id/status', (req, res, next) => {

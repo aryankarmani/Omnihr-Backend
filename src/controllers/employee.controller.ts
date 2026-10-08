@@ -9,6 +9,7 @@ import { createAuditLog } from "../utils/auditLog";
 import fs from 'fs';
 import path from 'path';
 import { calculateProfileCompletion } from '../utils/profileCompletion';
+import { checkUserHasPermission } from '../middleware/auth';
 
 
 const prisma = new PrismaClient();
@@ -317,13 +318,19 @@ export const getAllEmployees = async (req: Request, res: Response) => {
                 : {}),
         };
 
-        // ✅ CHANGED: Manager is checked from Team.managerId, not role
-        const memberIds = await getManagerTeamMemberIds(tenantId, userId);
+        // Check if user has permission to view all employees
+        const isSuperAdmin = role === 'SUPER_ADMIN';
+        const isAdmin = role === 'HR_ADMIN' || role === 'ADMIN' || role === 'SYSTEM_ADMIN' || isSuperAdmin;
+        const canViewAllEmployees = isAdmin || await checkUserHasPermission(userId, 'EMPLOYEE_VIEW');
 
-        if (memberIds.length > 0 && role !== "HR_ADMIN" && role !== "ADMIN" && role !== "SYSTEM_ADMIN") {
-            whereClause.id = {
-                in: memberIds,
-            };
+        if (!canViewAllEmployees) {
+            // Manager scoped fallback:
+            const memberIds = await getManagerTeamMemberIds(tenantId, userId);
+            if (memberIds.length > 0) {
+                whereClause.id = { in: memberIds };
+            } else {
+                whereClause.id = userId;
+            }
         }
 
         const employees = await prisma.user.findMany({
@@ -753,7 +760,13 @@ export const getEmployee = async (req: Request, res: Response) => {
         const isAdmin = currentUser?.role === 'HR_ADMIN' || currentUser?.role === 'ADMIN' || currentUser?.role === 'SYSTEM_ADMIN' || isSuperAdmin;
 
         if (!isAdmin && Number(currentUser?.id) !== Number(id)) {
-            return res.status(403).json({ message: 'Access denied: Employees can only view their own profile' });
+            const canView = await checkUserHasPermission(currentUser.id, 'EMPLOYEE_VIEW');
+            if (!canView) {
+                const memberIds = await getManagerTeamMemberIds(tenantId, currentUser.id);
+                if (!memberIds.includes(Number(id))) {
+                    return res.status(403).json({ message: 'Access denied: You do not have permission to view other employee profiles' });
+                }
+            }
         }
 
         const employee = await prisma.user.findFirst({
@@ -850,8 +863,18 @@ export const updateEmployee = async (req: Request, res: Response) => {
         const isSuperAdmin = loggedInUser?.role === 'SUPER_ADMIN';
         const isAdmin = loggedInUser?.role === 'HR_ADMIN' || loggedInUser?.role === 'ADMIN' || loggedInUser?.role === 'SYSTEM_ADMIN' || isSuperAdmin;
 
-        if (!isAdmin && Number(loggedInUser?.id) !== Number(userId)) {
-            return res.status(403).json({ message: "Access denied: Employees cannot update other employee profiles" });
+        if (!isAdmin) {
+            if (Number(loggedInUser?.id) === Number(userId)) {
+                const canEditSelf = await checkUserHasPermission(loggedInUser.id, 'MY_PROFILE_EDIT');
+                if (!canEditSelf) {
+                    return res.status(403).json({ message: "You don't have access to edit your profile" });
+                }
+            } else {
+                const canUpdateOther = await checkUserHasPermission(loggedInUser.id, 'EMPLOYEE_UPDATE');
+                if (!canUpdateOther) {
+                    return res.status(403).json({ message: "Access denied: You do not have permission to update other employee profiles" });
+                }
+            }
         }
 
         const {
@@ -1639,8 +1662,18 @@ export const updateProfilePicture = async (req: Request, res: Response) => {
         const isSuperAdmin = loggedInUser?.role === 'SUPER_ADMIN';
         const isAdmin = loggedInUser?.role === 'HR_ADMIN' || loggedInUser?.role === 'ADMIN' || loggedInUser?.role === 'SYSTEM_ADMIN' || isSuperAdmin;
 
-        if (!isAdmin && Number(loggedInUser?.id) !== Number(userId)) {
-            return res.status(403).json({ message: "Access denied" });
+        if (!isAdmin) {
+            if (Number(loggedInUser?.id) === Number(userId)) {
+                const canEditSelf = await checkUserHasPermission(loggedInUser.id, 'MY_PROFILE_EDIT');
+                if (!canEditSelf) {
+                    return res.status(403).json({ message: "You don't have access to edit your profile" });
+                }
+            } else {
+                const canUpdateOther = await checkUserHasPermission(loggedInUser.id, 'EMPLOYEE_UPDATE');
+                if (!canUpdateOther) {
+                    return res.status(403).json({ message: "Access denied: You do not have permission to update other employee profiles" });
+                }
+            }
         }
 
         const file = req.file;
@@ -1715,8 +1748,18 @@ export const deleteProfilePicture = async (req: Request, res: Response) => {
         const isSuperAdminDel = loggedInUser?.role === 'SUPER_ADMIN';
         const isAdminDel = loggedInUser?.role === 'HR_ADMIN' || loggedInUser?.role === 'ADMIN' || loggedInUser?.role === 'SYSTEM_ADMIN' || isSuperAdminDel;
 
-        if (!isAdminDel && Number(loggedInUser?.id) !== Number(userId)) {
-            return res.status(403).json({ message: "Access denied" });
+        if (!isAdminDel) {
+            if (Number(loggedInUser?.id) === Number(userId)) {
+                const canEditSelf = await checkUserHasPermission(loggedInUser.id, 'MY_PROFILE_EDIT');
+                if (!canEditSelf) {
+                    return res.status(403).json({ message: "You don't have access to edit your profile" });
+                }
+            } else {
+                const canUpdateOther = await checkUserHasPermission(loggedInUser.id, 'EMPLOYEE_UPDATE');
+                if (!canUpdateOther) {
+                    return res.status(403).json({ message: "Access denied: You do not have permission to update other employee profiles" });
+                }
+            }
         }
 
         // Find existing employee profile

@@ -97,7 +97,41 @@ export const authorize = (allowedRoles: string[]) => {
 };
 
 // Central Granular Permission Middleware
-export const requirePermission = (permissionCode: string) => {
+export const checkUserHasPermission = async (
+  userId: number,
+  permissionCodes: string | string[]
+): Promise<boolean> => {
+  try {
+    const dbUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        role: {
+          select: {
+            name: true,
+            permissions: {
+              select: { code: true }
+            }
+          }
+        }
+      }
+    });
+
+    if (!dbUser || !dbUser.role) return false;
+    const roleName = String(dbUser.role.name || "").toUpperCase();
+    if (roleName === "SUPER_ADMIN" || roleName === "HR_ADMIN" || roleName === "ADMIN" || roleName === "SYSTEM_ADMIN") {
+      return true;
+    }
+
+    const codes = Array.isArray(permissionCodes) ? permissionCodes : [permissionCodes];
+    const userCodes = dbUser.role.permissions.map(p => p.code);
+    return codes.some(c => userCodes.includes(c));
+  } catch (err) {
+    console.error("[checkUserHasPermission error]", err);
+    return false;
+  }
+};
+
+export const requirePermission = (permissionCode: string | string[]) => {
   return async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const user = req.user;
@@ -106,8 +140,8 @@ export const requirePermission = (permissionCode: string) => {
       }
 
       const role = String(user.role || "").toUpperCase();
-      // Super Admins automatically bypass permission checks
-      if (role === "SUPER_ADMIN") {
+      // Admins automatically bypass permission checks
+      if (role === "SUPER_ADMIN" || role === "HR_ADMIN" || role === "ADMIN" || role === "SYSTEM_ADMIN") {
         return next();
       }
 
@@ -133,16 +167,9 @@ export const requirePermission = (permissionCode: string) => {
         });
       }
 
-      const hasCode = dbUser.role.permissions.some(p => p.code === permissionCode);
+      const codes = Array.isArray(permissionCode) ? permissionCode : [permissionCode];
+      const hasCode = dbUser.role.permissions.some(p => codes.includes(p.code));
       if (!hasCode) {
-        // Fallback safety: Allow company administrators to manage roles/masters in Access Control so they never get locked out of role configuration
-        if (
-          permissionCode === "MASTERS_MANAGE" &&
-          (role === "HR_ADMIN" || role === "ADMIN" || role === "SYSTEM_ADMIN")
-        ) {
-          return next();
-        }
-
         return res.status(403).json({
           code: "PERMISSION_DENIED",
           message: "You don't have access to this"
