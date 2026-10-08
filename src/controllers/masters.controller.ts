@@ -480,7 +480,7 @@ export const STANDARD_PERMISSIONS = [
 
     // 2. ATTENDANCE (My Attendance - /attendance)
     { name: "View My Attendance", code: "ATTENDANCE_VIEW", module: "ATTENDANCE", description: "View personal punch-in/out logs, shift timing & calendar" },
-    { name: "Regularize Attendance", code: "ATTENDANCE_REGULARIZE", module: "ATTENDANCE", description: "Request punch regularizations for self" },
+    { name: "Correction", code: "ATTENDANCE_REGULARIZE", module: "ATTENDANCE", description: "Request punch correction for self" },
 
     // 3. EMPLOYEE (/employee) - Employee List, Correction (Regularizations), and Leave Approval
     // -- Employee List --
