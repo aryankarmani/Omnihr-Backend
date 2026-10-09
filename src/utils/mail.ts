@@ -143,11 +143,12 @@ export const sendMail = async ({
     return;
   }
 
-  const sender = process.env.SMTP_FROM || `OmniHR <${process.env.SMTP_USER}>`;
+  const rawFrom = (process.env.SMTP_FROM || process.env.SMTP_USER || "").trim();
+  const cleanFrom = rawFrom.replace(/^["']|["']$/g, "").trim();
 
   try {
     const info = await transporter.sendMail({
-      from: (process.env.SMTP_FROM || process.env.SMTP_USER || "").trim(),
+      from: cleanFrom || `OmniHR <${process.env.SMTP_USER}>`,
       to,
       subject,
       html,
