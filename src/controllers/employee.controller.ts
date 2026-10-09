@@ -105,10 +105,21 @@ export const checkEmployeeEmail = async (req: Request, res: Response) => {
 
         const existingUser = await prisma.user.findFirst({
             where,
-            select: { id: true, email: true },
+            include: { employeeProfile: true }
         });
 
-        return res.json({ exists: !!existingUser });
+        // Email is in use if user exists with password or active employee profile (not an uncompleted pending invite)
+        const isAlreadyInUse = !!(
+            existingUser &&
+            (
+                existingUser.password ||
+                existingUser.employeeProfile?.status === 'Active' ||
+                existingUser.employeeProfile?.status === 'active' ||
+                (existingUser.employeeProfile && existingUser.employeeProfile.status !== 'Pending')
+            )
+        );
+
+        return res.json({ exists: isAlreadyInUse });
     } catch (error) {
         console.error('Error checking employee email:', error);
         return res.status(500).json({ message: 'Server error checking email' });

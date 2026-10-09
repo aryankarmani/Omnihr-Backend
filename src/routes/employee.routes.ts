@@ -13,6 +13,14 @@ import {
   deleteProfilePicture,
   checkEmployeeEmail
 } from '../controllers/employee.controller';
+import {
+  inviteOnboarding,
+  getOnboardingInvites,
+  getOnboardingData,
+  submitOnboardingProfile,
+  deleteOnboardingInvite,
+  cancelOnboarding
+} from '../controllers/onboarding.controller';
 import { authenticate, requirePermission, checkUserHasPermission } from '../middleware/auth';
 import { upload } from '../middleware/upload';
 
@@ -39,6 +47,14 @@ const authorizeDocumentAccess = async (req: any, res: any, next: any) => {
   }
   return res.status(403).json({ message: "You don't have access to this" });
 };
+
+// Onboarding & Invitation Endpoints
+router.post('/invite-onboarding', authenticate, inviteOnboarding);
+router.get('/onboarding-invites', authenticate, getOnboardingInvites);
+router.delete('/onboarding-invite/:id', authenticate, deleteOnboardingInvite);
+router.get('/public-onboarding-data', getOnboardingData);
+router.post('/public-onboard', submitOnboardingProfile);
+router.post('/public-onboard-cancel', cancelOnboarding);
 
 router.get('/check-email', authenticate, checkEmployeeEmail);
 router.get('/', authenticate, getAllEmployees);
