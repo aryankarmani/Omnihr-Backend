@@ -271,6 +271,104 @@ export const employeeWelcomeTemplate = ({
 };
 
 // ============================================================
+// 1b. Employee Onboarding Correction Request Email Template
+// ============================================================
+export const employeeCorrectionRequestTemplate = ({
+  name,
+  remarks,
+  correctionUrl,
+}: {
+  name: string;
+  remarks: string;
+  correctionUrl: string;
+}) => {
+  return {
+    html: `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Action Required: Updates Needed on Your Profile</title>
+      </head>
+      <body style="margin:0;padding:0;background-color:#F4F6FB;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#12151C;">
+        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#F4F6FB;padding:40px 16px;">
+          <tr>
+            <td align="center">
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 8px 30px rgba(44,79,214,0.08);border:1px solid #E2E6ED;">
+                
+                <!-- Brand Header -->
+                <tr>
+                  <td style="background:linear-gradient(135deg,#D97706 0%,#B45309 100%);padding:36px 32px;text-align:center;">
+                    <div style="display:inline-block;width:46px;height:46px;background:#ffffff;border-radius:8px;text-align:center;line-height:46px;font-size:24px;font-weight:800;color:#D97706;margin-bottom:12px;box-shadow:0 4px 14px rgba(0,0,0,0.15);">
+                      ⚠️
+                    </div>
+                    <h1 style="margin:0;font-size:24px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;">OmniHR</h1>
+                    <p style="margin:6px 0 0;font-size:13px;color:rgba(255,255,255,0.9);font-weight:400;">Employee Onboarding Portal</p>
+                  </td>
+                </tr>
+
+                <!-- Content Area -->
+                <tr>
+                  <td style="padding:36px 32px;">
+                    <h2 style="margin:0 0 12px;font-size:20px;font-weight:700;color:#12151C;">Action Needed: Correction Requested, ${name}</h2>
+                    <p style="margin:0 0 20px;font-size:14px;line-height:1.6;color:#5B6472;">
+                      The HR administrator has reviewed your submitted onboarding details and requested the following corrections / updates before your account can be approved:
+                    </p>
+
+                    <!-- Remarks Box -->
+                    <div style="background:#FFFBEB;border:1px solid #FDE68A;border-left:4px solid #D97706;border-radius:6px;padding:20px;margin-bottom:24px;">
+                      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:#92400E;margin-bottom:8px;">
+                        Admin Remarks:
+                      </div>
+                      <div style="font-size:14px;font-weight:500;color:#78350F;line-height:1.6;white-space:pre-wrap;">
+                        ${remarks}
+                      </div>
+                    </div>
+
+                    <p style="margin:0 0 24px;font-size:14px;line-height:1.6;color:#5B6472;">
+                      Please click the button below to review and correct your details. Your previous inputs are saved and pre-filled for your convenience.
+                    </p>
+
+                    <!-- CTA Button -->
+                    <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td align="center" style="padding-bottom:24px;">
+                          <a href="${correctionUrl}" style="display:inline-block;background:#D97706;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:14px 34px;border-radius:6px;box-shadow:0 4px 14px rgba(217,119,6,0.3);">
+                            Review & Correct Your Details →
+                          </a>
+                        </td>
+                      </tr>
+                    </table>
+
+                    <p style="margin:0;font-size:12px;color:#9AA3B1;line-height:1.5;text-align:center;">
+                      If the button does not work, copy and paste this link into your browser:<br/>
+                      <a href="${correctionUrl}" style="color:#D97706;text-decoration:none;word-break:break-all;">${correctionUrl}</a>
+                    </p>
+                  </td>
+                </tr>
+
+                <!-- Footer -->
+                <tr>
+                  <td style="background:#F7F8FA;border-top:1px solid #E2E6ED;padding:20px 32px;text-align:center;">
+                    <p style="margin:0;font-size:12px;color:#717E95;">
+                      © ${new Date().getFullYear()} OmniHR SaaS Platform. All rights reserved.
+                    </p>
+                  </td>
+                </tr>
+
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
+      </html>
+    `,
+    text: `Hello ${name}, The HR administrator has reviewed your onboarding details and requested the following corrections: "${remarks}". Please visit this link to update your details: ${correctionUrl}`,
+  };
+};
+
+// ============================================================
 // 2. Company Onboarding Email Template (Subscription / Payment)
 // ============================================================
 export const companyOnboardingTemplate = ({
