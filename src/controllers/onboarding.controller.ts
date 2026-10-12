@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { sendMail, employeeWelcomeTemplate } from '../utils/mail';
+import { notifyAdmins } from '../utils/notification';
 
 const prisma = new PrismaClient();
 
@@ -334,14 +335,7 @@ export const getOnboardingData = async (req: Request, res: Response) => {
             return res.status(404).json({ message: 'Onboarding invitation record was not found or was removed' });
         }
 
-        // If user already completed profile
-        if (user.employeeProfile.status === 'Completed' || user.employeeProfile.status === 'Active') {
-            return res.status(400).json({
-                message: 'Your profile has already been completed. Thank you!'
-            });
-        }
-
-        // ONE-TIME LINK VERIFICATION
+        // ONE-TIME LINK & SUBMISSION VERIFICATION
         let meta: any = {};
         try {
             meta = user.employeeProfile.customFields ? JSON.parse(user.employeeProfile.customFields) : {};
@@ -349,41 +343,47 @@ export const getOnboardingData = async (req: Request, res: Response) => {
             meta = {};
         }
 
-        // Check if an updated invitation token was generated
+        // 1. If user already submitted their profile details -> Link is expired
+        if (user.employeeProfile.status === 'Submitted' || meta.onboardingSubmitted === true) {
+            return res.status(400).json({
+                message: 'Your profile details have already been submitted and are awaiting administrator approval. This invitation link has expired and cannot be used again.'
+            });
+        }
+
+        // 2. If user already completed profile and is Active -> Link is expired
+        if (
+            user.employeeProfile.status === 'Completed' ||
+            user.employeeProfile.status === 'Active' ||
+            meta.onboardingCompleted === true
+        ) {
+            return res.status(400).json({
+                message: 'Your profile has already been completed and activated. This invitation link has expired.'
+            });
+        }
+
+        // 3. If onboarding was cancelled
+        if (user.employeeProfile.status === 'Cancelled') {
+            return res.status(400).json({
+                message: 'This onboarding invitation was cancelled. Please request a new invitation link from your administrator.'
+            });
+        }
+
+        // 4. Check if an updated invitation token was generated
         if (meta.onboardingToken && meta.onboardingToken !== token) {
             return res.status(400).json({
                 message: 'This invitation link is no longer valid. A newer invitation was sent to your email.'
             });
         }
 
-        // If link was already accessed once -> ONE-TIME USE VIOLATED
-        if (meta.accessCount && meta.accessCount >= 1) {
-            // Mark status as Expired in database so admin sees it and can resend
-            await prisma.employeeProfile.update({
-                where: { id: user.employeeProfile.id },
-                data: { status: 'Expired' }
-            });
+        // 5. If link was already marked as used or expired
+        if (user.employeeProfile.status === 'Expired' || meta.tokenUsed === true) {
             return res.status(400).json({
-                message: 'This invitation link was valid for one-time use only and has already been accessed. Please ask your administrator to send a new invite.'
+                message: 'This invitation link has expired. Please ask your administrator to send a new invite.'
             });
         }
 
-        // First time accessing: mark link as consumed (accessCount: 1)
-        await prisma.employeeProfile.update({
-            where: { id: user.employeeProfile.id },
-            data: {
-                customFields: JSON.stringify({
-                    ...meta,
-                    onboardingToken: token,
-                    accessCount: 1,
-                    tokenUsed: true,
-                    firstAccessedAt: new Date().toISOString()
-                })
-            }
-        });
-
-        // Fetch master data for the form
-        const [departments, designations, employeeRole] = await Promise.all([
+        // Fetch master data for the complete onboarding form
+        const [departments, designations, employeeRole, salaryComponents, customFieldMasters] = await Promise.all([
             prisma.department.findMany({
                 where: { tenantId },
                 select: { id: true, name: true }
@@ -398,6 +398,12 @@ export const getOnboardingData = async (req: Request, res: Response) => {
                     name: { equals: 'EMPLOYEE', mode: 'insensitive' }
                 },
                 select: { id: true, name: true }
+            }),
+            prisma.salaryComponent.findMany({
+                where: { tenantId }
+            }),
+            prisma.customField.findMany({
+                where: { tenantId }
             })
         ]);
 
@@ -410,9 +416,17 @@ export const getOnboardingData = async (req: Request, res: Response) => {
 
         return res.json({
             email: decoded.email,
-            departments,
-            designations,
-            roles
+            departments: departments.map(d => ({ id: d.id, name: d.name })),
+            designations: designations.map(d => ({ id: d.id, name: d.title, title: d.title })),
+            roles,
+            salaryComponents: salaryComponents || [],
+            customFieldMasters: customFieldMasters || [],
+            initialData: {
+                phone: user.employeeProfile.phone || '',
+                departmentId: user.employeeProfile.departmentId || '',
+                designationId: user.employeeProfile.designationId || '',
+                joiningDate: user.employeeProfile.joiningDate ? new Date(user.employeeProfile.joiningDate).toISOString().split('T')[0] : ''
+            }
         });
     } catch (error: any) {
         console.error('Error in getOnboardingData:', error);
@@ -461,7 +475,13 @@ const getFrontendLoginUrl = (req: Request) => {
 // 4. Public: Submit completed onboarding profile
 export const submitOnboardingProfile = async (req: Request, res: Response) => {
     try {
-        const { token, data } = req.body;
+        let data: any = req.body.data;
+        if (typeof data === 'string') {
+            try { data = JSON.parse(data); } catch { data = {}; }
+        }
+        if (!data) data = req.body;
+
+        const token = req.body.token || data?.token;
         if (!token || typeof token !== 'string') {
             return res.status(400).json({ message: 'Invitation token is missing' });
         }
@@ -485,7 +505,16 @@ export const submitOnboardingProfile = async (req: Request, res: Response) => {
             roleId,
             bloodGroup,
             address,
-            password
+            pan,
+            aadhaar,
+            uan,
+            esic,
+            bankName,
+            ifsc,
+            accountNumber,
+            salary,
+            selectedSalaryComponents,
+            customFieldValues = {}
         } = data || {};
 
         const fullName = `${firstName || ''} ${lastName || ''}`.trim() || email.split('@')[0];
@@ -512,63 +541,258 @@ export const submitOnboardingProfile = async (req: Request, res: Response) => {
             include: { employeeProfile: true }
         });
 
-        if (user) {
-            user = await prisma.user.update({
-                where: { id: user.id },
-                data: {
-                    name: fullName,
-                    roleId: roleId ? Number(roleId) : user.roleId,
-                    isActive: false, // Inactive until admin approves
-                },
-                include: { employeeProfile: true }
-            });
-        } else {
-            user = await prisma.user.create({
-                data: {
-                    email,
-                    name: fullName,
-                    tenantId,
-                    roleId: roleId ? Number(roleId) : undefined,
-                    isActive: false
-                },
-                include: { employeeProfile: true }
+        if (user && user.employeeProfile) {
+            let metaCheck: any = {};
+            try {
+                metaCheck = user.employeeProfile.customFields ? JSON.parse(user.employeeProfile.customFields) : {};
+            } catch {}
+
+            if (user.employeeProfile.status === 'Submitted' || metaCheck.onboardingSubmitted === true) {
+                return res.status(400).json({
+                    message: 'Your profile details have already been submitted and are awaiting administrator approval.'
+                });
+            }
+
+            if (user.employeeProfile.status === 'Completed' || user.employeeProfile.status === 'Active' || metaCheck.onboardingCompleted === true) {
+                return res.status(400).json({
+                    message: 'Your profile has already been completed.'
+                });
+            }
+        }
+
+        let existingMeta: any = {};
+        try {
+            existingMeta = user?.employeeProfile?.customFields ? JSON.parse(user.employeeProfile.customFields) : {};
+        } catch {
+            existingMeta = {};
+        }
+
+        // Process uploaded files
+        const uploadedFiles = req.files as Express.Multer.File[] | undefined;
+        const files: { [fieldname: string]: Express.Multer.File[] } = {};
+        if (uploadedFiles) {
+            uploadedFiles.forEach(file => {
+                if (!files[file.fieldname]) {
+                    files[file.fieldname] = [];
+                }
+                files[file.fieldname].push(file);
             });
         }
 
-        const profileData: any = {
-            tenantId,
-            phone: phone || null,
-            dob: dob ? new Date(dob) : null,
-            joiningDate: joiningDate ? new Date(joiningDate) : new Date(),
-            departmentId: departmentId ? String(departmentId) : null,
-            department: deptName,
-            designationId: designationId ? String(designationId) : null,
-            title: desigTitle,
-            bloodGroup: bloodGroup || null,
-            address: address || null,
-            status: 'Submitted',
-            customFields: JSON.stringify({
-                onboardingSubmitted: true,
-                onboardingCompleted: false,
-                submittedAt: new Date().toISOString()
-            })
+        const profilePhotoFile = uploadedFiles?.find(
+            (file) => file.fieldname === "profilePhoto" || file.fieldname === "profilePicture"
+        );
+        const profilePhotoPath = profilePhotoFile ? `/uploads/${profilePhotoFile.filename}` : null;
+
+        // Custom fields map
+        const cfMasters = await prisma.customField.findMany({
+            where: { tenantId }
+        });
+
+        const customFieldsMap: Record<string, any> = {
+            ...existingMeta,
+            onboardingSubmitted: true,
+            onboardingCompleted: false,
+            tokenUsed: true,
+            onboardingToken: token,
+            submittedAt: new Date().toISOString()
         };
 
-        if (user.employeeProfile) {
-            await prisma.employeeProfile.update({
-                where: { id: user.employeeProfile.id },
-                data: profileData
-            });
-        } else {
-            await prisma.employeeProfile.create({
-                data: {
-                    userId: user.id,
-                    ...profileData
-                }
+        if (cfMasters.length > 0) {
+            cfMasters.forEach((cf: any) => {
+                const value = customFieldValues[cf.id] !== undefined ? String(customFieldValues[cf.id]) : null;
+                const fileArr = files[`custom-file-${cf.id}`];
+                const file = fileArr && fileArr[0];
+                const docUrl = file ? file.filename : null;
+                const docName = file ? file.originalname : null;
+
+                customFieldsMap[cf.id] = {
+                    value,
+                    documentUrl: docUrl,
+                    documentName: docName
+                };
             });
         }
 
-        // We do NOT send the password email here. The password email is sent when the Admin clicks "Approve".
+        // Run full creation/update in transaction
+        await prisma.$transaction(async (tx) => {
+            if (user) {
+                user = await tx.user.update({
+                    where: { id: user.id },
+                    data: {
+                        name: fullName,
+                        roleId: roleId ? Number(roleId) : user.roleId,
+                        isActive: false, // Inactive until admin approves
+                    },
+                    include: { employeeProfile: true }
+                });
+            } else {
+                user = await tx.user.create({
+                    data: {
+                        email,
+                        name: fullName,
+                        tenantId,
+                        roleId: roleId ? Number(roleId) : undefined,
+                        isActive: false
+                    },
+                    include: { employeeProfile: true }
+                });
+            }
+
+            const profileData: any = {
+                tenantId,
+                phone: phone || null,
+                dob: dob ? new Date(dob) : null,
+                joiningDate: joiningDate ? new Date(joiningDate) : new Date(),
+                departmentId: departmentId ? String(departmentId) : null,
+                department: deptName,
+                designationId: designationId ? String(designationId) : null,
+                title: desigTitle,
+                bloodGroup: bloodGroup || null,
+                address: address || null,
+                ...(profilePhotoPath ? { avatar: profilePhotoPath } : {}),
+                status: 'Submitted',
+                customFields: JSON.stringify(customFieldsMap)
+            };
+
+            let profile: any;
+            if (user.employeeProfile) {
+                profile = await tx.employeeProfile.update({
+                    where: { id: user.employeeProfile.id },
+                    data: profileData
+                });
+            } else {
+                profile = await tx.employeeProfile.create({
+                    data: {
+                        userId: user.id,
+                        ...profileData
+                    }
+                });
+            }
+
+            // Statutory details
+            if (pan || aadhaar || uan || esic) {
+                await tx.statutoryDetails.upsert({
+                    where: { profileId: profile.id },
+                    create: {
+                        profileId: profile.id,
+                        pan: pan || null,
+                        aadhaar: aadhaar || null,
+                        uan: uan || null,
+                        esic: esic || null
+                    },
+                    update: {
+                        pan: pan || null,
+                        aadhaar: aadhaar || null,
+                        uan: uan || null,
+                        esic: esic || null
+                    }
+                });
+            }
+
+            // Bank details
+            if (bankName || ifsc || accountNumber) {
+                await tx.bankDetails.upsert({
+                    where: { profileId: profile.id },
+                    create: {
+                        profileId: profile.id,
+                        bankName: bankName || 'Not Provided',
+                        accountNumber: accountNumber || 'Not Provided',
+                        ifsc: ifsc || 'Not Provided'
+                    },
+                    update: {
+                        bankName: bankName || 'Not Provided',
+                        accountNumber: accountNumber || 'Not Provided',
+                        ifsc: ifsc || 'Not Provided'
+                    }
+                });
+            }
+
+            // Salary Structure
+            const basicAmount = Number(salary?.basic || 0);
+            if (basicAmount > 0) {
+                const salaryData = {
+                    basic: basicAmount,
+                    hra: Number(salary?.hra || 0),
+                    special: Number(salary?.special || 0),
+                    medical: Number(salary?.medical || 0),
+                    pf: Number(salary?.pf || 0),
+                    pt: Number(salary?.pt || 0),
+                    tax: Number(salary?.tax || 0),
+                    totalSalary: basicAmount
+                };
+
+                await tx.salaryStructure.upsert({
+                    where: { profileId: profile.id },
+                    create: {
+                        profileId: profile.id,
+                        ...salaryData
+                    },
+                    update: salaryData
+                });
+            }
+
+            // Employee Salary Components
+            const incomingSalaryComponents = selectedSalaryComponents || data?.salaryComponents;
+            if (Array.isArray(incomingSalaryComponents) && incomingSalaryComponents.length > 0) {
+                await tx.employeeSalaryComponent.deleteMany({
+                    where: { profileId: profile.id, tenantId }
+                });
+
+                const componentInserts = incomingSalaryComponents
+                    .map((comp: any) => {
+                        const componentId = comp.componentId || comp.id;
+                        if (!componentId) return null;
+                        return {
+                            tenantId,
+                            profileId: profile.id,
+                            componentId: String(componentId),
+                            amount: comp.amount !== undefined && comp.amount !== null ? Number(comp.amount) : null,
+                        };
+                    })
+                    .filter(Boolean);
+
+                if (componentInserts.length > 0) {
+                    await tx.employeeSalaryComponent.createMany({
+                        data: componentInserts as any[],
+                        skipDuplicates: true
+                    });
+                }
+            }
+
+            // Documents
+            if (uploadedFiles && uploadedFiles.length > 0) {
+                for (const fieldName of ['aadhaar', 'pan', 'degree']) {
+                    const fileArr = files[fieldName];
+                    if (fileArr && fileArr[0]) {
+                        const file = fileArr[0];
+                        await tx.document.create({
+                            data: {
+                                profileId: profile.id,
+                                name: fieldName === 'aadhaar' ? 'Aadhaar Card' : fieldName === 'pan' ? 'PAN Card' : 'Highest Qualification Degree',
+                                url: file.filename,
+                                type: file.mimetype,
+                                originalName: file.originalname
+                            }
+                        });
+                    }
+                }
+            }
+        });
+
+        // Notify admins of new complete submission
+        try {
+            await notifyAdmins({
+                tenantId,
+                title: 'Employee Onboarding Submitted',
+                message: `${fullName} has submitted their complete onboarding details and is awaiting approval.`,
+                type: 'employee',
+                link: '/profile-completion'
+            });
+        } catch (e) {
+            console.error('Failed to notify admins of onboarding submission:', e);
+        }
+
         return res.json({
             success: true,
             message: 'Your profile details have been submitted successfully! Waiting for administrator approval.'
@@ -699,10 +923,22 @@ export const cancelOnboarding = async (req: Request, res: Response) => {
             include: { employeeProfile: true }
         });
 
-        if (user && user.employeeProfile && user.employeeProfile.status !== 'Completed') {
+        if (user && user.employeeProfile && user.employeeProfile.status !== 'Completed' && user.employeeProfile.status !== 'Active') {
+            let cancelMeta: any = {};
+            try {
+                cancelMeta = user.employeeProfile.customFields ? JSON.parse(user.employeeProfile.customFields) : {};
+            } catch {}
+
             await prisma.employeeProfile.update({
                 where: { id: user.employeeProfile.id },
-                data: { status: 'Cancelled' }
+                data: {
+                    status: 'Cancelled',
+                    customFields: JSON.stringify({
+                        ...cancelMeta,
+                        tokenUsed: true,
+                        cancelledAt: new Date().toISOString()
+                    })
+                }
             });
         }
 
