@@ -14,34 +14,49 @@ export const sendSingleInviteInternal = async (tenantId: any, email: string, ori
         throw new Error('Please enter a valid email address');
     }
 
-    // Check if an existing user already exists with this email in THIS company
+    // Check if an existing user already exists with this email in THIS company (regardless of deletedAt)
     const existingUser: any = await prisma.user.findFirst({
         where: {
             email: { equals: cleanEmail, mode: 'insensitive' },
             tenantId,
-            deletedAt: null
         },
         include: { employeeProfile: true }
     });
 
-    if (
-        existingUser &&
-        (
+    if (existingUser && !existingUser.deletedAt) {
+        if (
             existingUser.password ||
             existingUser.employeeProfile?.status === 'Active' ||
             existingUser.employeeProfile?.status === 'active' ||
             existingUser.employeeProfile?.status === 'Completed' ||
-            (existingUser.employeeProfile && !['Pending', 'Failed', 'Cancelled', 'Expired'].includes(existingUser.employeeProfile.status))
-        )
-    ) {
-        throw new Error('This email is already in use by an active employee.');
-    }
+            (existingUser.employeeProfile && !['Pending', 'Submitted', 'Failed', 'Cancelled', 'Expired'].includes(existingUser.employeeProfile.status))
+        ) {
+            throw new Error('This email is already in use by an active employee.');
+        }
 
-    if (existingUser && existingUser.employeeProfile?.status === 'Pending') {
-        throw new Error('An invitation has already been sent to this email and is currently pending. You can only resend if the link expires or is cancelled.');
+        if (existingUser.employeeProfile?.status === 'Pending') {
+            throw new Error('An invitation has already been sent to this email and is currently pending. You can only resend if the link expires or is cancelled.');
+        }
+
+        if (existingUser.employeeProfile?.status === 'Submitted') {
+            throw new Error('This employee has already submitted their profile and is waiting for your approval in the list.');
+        }
     }
 
     let userRecord: any = existingUser;
+
+    if (userRecord && userRecord.deletedAt) {
+        // User was previously soft-deleted: reactivate for fresh onboarding invite
+        userRecord = await prisma.user.update({
+            where: { id: userRecord.id },
+            data: {
+                isActive: true,
+                deletedAt: null,
+                password: null
+            },
+            include: { employeeProfile: true }
+        });
+    }
 
     if (!userRecord) {
         let empRole = await prisma.role.findFirst({
@@ -91,6 +106,8 @@ export const sendSingleInviteInternal = async (tenantId: any, email: string, ori
             where: { id: userRecord.employeeProfile.id },
             data: {
                 status: 'Pending',
+                deletedAt: null,
+                isActive: true,
                 customFields: JSON.stringify(onboardingMeta)
             }
         });
@@ -105,9 +122,9 @@ export const sendSingleInviteInternal = async (tenantId: any, email: string, ori
         });
     }
 
-    const isLocal = origin.includes('localhost') || origin.includes('127.0.0.1');
-    const liveFrontendUrl = (process.env.FRONTEND_URL || 'https://omnihr-frontend.vercel.app').replace(/\/$/, '');
-    const primaryUrl = isLocal ? origin : liveFrontendUrl;
+    const primaryUrl = (origin && origin.startsWith('http'))
+        ? origin.replace(/\/+$/, '')
+        : (process.env.FRONTEND_URL || 'https://omnihr-frontend.vercel.app').replace(/\/+$/, '');
     const inviteLink = `${primaryUrl}/complete-profile?token=${token}`;
 
     await sendMail({
@@ -224,7 +241,7 @@ export const getOnboardingInvites = async (req: Request, res: Response) => {
                 deletedAt: null,
                 employeeProfile: {
                     OR: [
-                        { status: { in: ['Pending', 'Failed', 'Completed', 'Cancelled', 'Expired'] } },
+                        { status: { in: ['Pending', 'Submitted', 'Failed', 'Completed', 'Cancelled', 'Expired'] } },
                         { customFields: { contains: 'onboarding' } }
                     ]
                 }
@@ -246,6 +263,8 @@ export const getOnboardingInvites = async (req: Request, res: Response) => {
                 let status = 'Pending';
                 if (rawStatus === 'Completed' || meta.onboardingCompleted || (rawStatus === 'Active' && meta.onboardingCompleted)) {
                     status = 'Completed';
+                } else if (rawStatus === 'Submitted' || meta.onboardingSubmitted) {
+                    status = 'Submitted';
                 } else if (rawStatus === 'Cancelled') {
                     status = 'Cancelled';
                 } else if (rawStatus === 'Expired') {
@@ -259,6 +278,7 @@ export const getOnboardingInvites = async (req: Request, res: Response) => {
                 return {
                     id: u.id,
                     email: u.email,
+                    name: u.name,
                     status
                 };
             })
@@ -432,7 +452,7 @@ const getFrontendLoginUrl = (req: Request) => {
         return `${process.env.FRONTEND_URL.replace(/\/+$/, '')}/signin`;
     }
     const origin = (req.headers.origin as string) || (req.headers.referer ? new URL(req.headers.referer as string).origin : '');
-    if (origin && origin.startsWith("http") && !origin.includes("localhost")) {
+    if (origin && origin.startsWith("http") && !origin.includes("localhost") && !origin.includes("127.0.0.1")) {
         return `${origin.replace(/\/+$/, '')}/signin`;
     }
     return "https://omnihr-frontend.vercel.app/signin";
@@ -470,10 +490,22 @@ export const submitOnboardingProfile = async (req: Request, res: Response) => {
 
         const fullName = `${firstName || ''} ${lastName || ''}`.trim() || email.split('@')[0];
 
-        // Generate password if not supplied or use employee provided password
-        const plainPassword = (password && password.trim()) ? password.trim() : generateRandomPassword();
-        const hashedPassword = await bcrypt.hash(plainPassword, 10);
-        const loginUrl = getFrontendLoginUrl(req);
+        // Fetch Department name and Designation title so they are properly saved
+        let deptName: string | null = null;
+        if (departmentId) {
+            const dept = await prisma.department.findFirst({
+                where: { id: String(departmentId), tenantId }
+            });
+            deptName = dept?.name || null;
+        }
+
+        let desigTitle: string | null = null;
+        if (designationId) {
+            const desig = await prisma.designation.findFirst({
+                where: { id: String(designationId), tenantId }
+            });
+            desigTitle = desig?.title || null;
+        }
 
         let user = await prisma.user.findFirst({
             where: { email, tenantId, deletedAt: null },
@@ -486,8 +518,7 @@ export const submitOnboardingProfile = async (req: Request, res: Response) => {
                 data: {
                     name: fullName,
                     roleId: roleId ? Number(roleId) : user.roleId,
-                    password: hashedPassword,
-                    isActive: true,
+                    isActive: false, // Inactive until admin approves
                 },
                 include: { employeeProfile: true }
             });
@@ -498,8 +529,7 @@ export const submitOnboardingProfile = async (req: Request, res: Response) => {
                     name: fullName,
                     tenantId,
                     roleId: roleId ? Number(roleId) : undefined,
-                    password: hashedPassword,
-                    isActive: true
+                    isActive: false
                 },
                 include: { employeeProfile: true }
             });
@@ -511,11 +541,17 @@ export const submitOnboardingProfile = async (req: Request, res: Response) => {
             dob: dob ? new Date(dob) : null,
             joiningDate: joiningDate ? new Date(joiningDate) : new Date(),
             departmentId: departmentId ? String(departmentId) : null,
+            department: deptName,
             designationId: designationId ? String(designationId) : null,
+            title: desigTitle,
             bloodGroup: bloodGroup || null,
             address: address || null,
-            status: 'Active',
-            customFields: JSON.stringify({ onboardingCompleted: true, completedAt: new Date().toISOString() })
+            status: 'Submitted',
+            customFields: JSON.stringify({
+                onboardingSubmitted: true,
+                onboardingCompleted: false,
+                submittedAt: new Date().toISOString()
+            })
         };
 
         if (user.employeeProfile) {
@@ -532,33 +568,116 @@ export const submitOnboardingProfile = async (req: Request, res: Response) => {
             });
         }
 
-        // Send Welcome Email with login credentials (same template as manual Add Employee)
+        // We do NOT send the password email here. The password email is sent when the Admin clicks "Approve".
+        return res.json({
+            success: true,
+            message: 'Your profile details have been submitted successfully! Waiting for administrator approval.'
+        });
+    } catch (error: any) {
+        console.error('Error submitting onboarding profile:', error);
+        return res.status(500).json({ message: error.message || 'Failed to submit profile' });
+    }
+};
+
+// 4b. Admin approves a submitted onboarding profile and sends login credentials
+export const approveOnboarding = async (req: Request, res: Response) => {
+    try {
+        const tenantId = (req as any).user?.tenantId;
+        const { id } = req.params;
+
+        if (!tenantId) {
+            return res.status(401).json({ message: 'Unauthorized' });
+        }
+
+        const userId = parseInt(id, 10);
+        if (isNaN(userId)) {
+            return res.status(400).json({ message: 'Invalid employee ID' });
+        }
+
+        const user = await prisma.user.findFirst({
+            where: { id: userId, tenantId, deletedAt: null },
+            include: { employeeProfile: true, role: true }
+        });
+
+        if (!user) {
+            return res.status(404).json({ message: 'Employee not found' });
+        }
+
+        // Generate temporary password
+        const plainPassword = generateRandomPassword();
+        const hashedPassword = await bcrypt.hash(plainPassword, 10);
+        const loginUrl = getFrontendLoginUrl(req);
+
+        // Activate user and set password
+        await prisma.user.update({
+            where: { id: user.id },
+            data: {
+                password: hashedPassword,
+                isActive: true
+            }
+        });
+
+        let meta: any = {};
+        try {
+            meta = user.employeeProfile?.customFields ? JSON.parse(user.employeeProfile.customFields) : {};
+        } catch {}
+
+        meta.onboardingCompleted = true;
+        meta.approvedAt = new Date().toISOString();
+
+        // Also ensure department and title strings are populated
+        let deptName = user.employeeProfile?.department || null;
+        let desigTitle = user.employeeProfile?.title || null;
+
+        if (!deptName && user.employeeProfile?.departmentId) {
+            const dept = await prisma.department.findFirst({ where: { id: user.employeeProfile.departmentId, tenantId } });
+            if (dept) deptName = dept.name;
+        }
+
+        if (!desigTitle && user.employeeProfile?.designationId) {
+            const desig = await prisma.designation.findFirst({ where: { id: user.employeeProfile.designationId, tenantId } });
+            if (desig) desigTitle = desig.title;
+        }
+
+        if (user.employeeProfile) {
+            await prisma.employeeProfile.update({
+                where: { id: user.employeeProfile.id },
+                data: {
+                    status: 'Active',
+                    department: deptName,
+                    title: desigTitle,
+                    customFields: JSON.stringify(meta)
+                }
+            });
+        }
+
+        // Send Welcome Email with login credentials
         try {
             const emailContent = employeeWelcomeTemplate({
-                name: fullName,
-                email,
+                name: user.name || user.email.split('@')[0],
+                email: user.email,
                 password: plainPassword,
-                loginUrl,
+                loginUrl
             });
 
             await sendMail({
-                to: email,
+                to: user.email,
                 subject: "Welcome to OmniHR - Your Account is Ready",
                 html: emailContent.html,
-                text: emailContent.text,
+                text: emailContent.text
             });
-            console.log(`[Onboarding] Welcome credentials email dispatched to ${email}`);
+            console.log(`[Onboarding] Welcome credentials email dispatched to ${user.email} upon admin approval`);
         } catch (mailError) {
             console.error('[Onboarding] Error sending credentials email:', mailError);
         }
 
         return res.json({
             success: true,
-            message: 'Your profile has been completed and submitted successfully! Your login credentials have been sent to your email.'
+            message: `Account for ${user.email} has been approved and login credentials have been sent!`
         });
     } catch (error: any) {
-        console.error('Error submitting onboarding profile:', error);
-        return res.status(500).json({ message: error.message || 'Failed to submit profile' });
+        console.error('Error approving onboarding invite:', error);
+        return res.status(500).json({ message: error.message || 'Failed to approve employee' });
     }
 };
 
@@ -613,10 +732,6 @@ export const deleteOnboardingInvite = async (req: Request, res: Response) => {
             where: {
                 id: userId,
                 tenantId,
-                password: null,
-                employeeProfile: {
-                    status: { in: ['Pending', 'Failed', 'Completed', 'Cancelled', 'Expired'] }
-                }
             },
             include: { employeeProfile: true }
         });
@@ -625,13 +740,33 @@ export const deleteOnboardingInvite = async (req: Request, res: Response) => {
             return res.status(404).json({ message: 'Pending invite not found or cannot be deleted' });
         }
 
-        if (existingUser.employeeProfile) {
-            await prisma.statutoryDetails.deleteMany({ where: { profileId: existingUser.employeeProfile.id } });
-            await prisma.bankDetails.deleteMany({ where: { profileId: existingUser.employeeProfile.id } });
-            await prisma.employeeProfile.delete({ where: { id: existingUser.employeeProfile.id } });
-        }
+        await prisma.$transaction(async (tx) => {
+            if (existingUser.employeeProfile) {
+                const profileId = existingUser.employeeProfile.id;
+                await tx.statutoryDetails.deleteMany({ where: { profileId } });
+                await tx.bankDetails.deleteMany({ where: { profileId } });
+                await tx.document.deleteMany({ where: { profileId } });
+                await tx.salaryStructure.deleteMany({ where: { profileId } });
+                await tx.salaryRevision.deleteMany({ where: { profileId } });
+                await tx.employeeSalaryComponent.deleteMany({ where: { profileId } });
+                await tx.employeeProfile.delete({ where: { id: profileId } });
+            }
 
-        await prisma.user.delete({ where: { id: userId } });
+            await tx.refreshToken.deleteMany({ where: { userId } });
+            await tx.notification.deleteMany({ where: { userId } });
+            await tx.directConversationMember.deleteMany({ where: { userId } });
+            await tx.commChannelMember.deleteMany({ where: { userId } });
+            await tx.chatMessageRead.deleteMany({ where: { userId } });
+            await tx.chatMessage.deleteMany({ where: { senderId: userId } });
+            await tx.teamMember.deleteMany({ where: { userId } });
+            await tx.leave.deleteMany({ where: { userId } });
+            await tx.attendanceRecord.deleteMany({ where: { userId } });
+            await tx.attendanceRegularization.deleteMany({ where: { userId } });
+            await tx.taxRegimeSelection.deleteMany({ where: { userId } });
+            await tx.investmentDeclaration.deleteMany({ where: { userId } });
+
+            await tx.user.delete({ where: { id: userId } });
+        });
 
         return res.json({ success: true, message: 'Onboarding invite deleted successfully from database' });
     } catch (error: any) {

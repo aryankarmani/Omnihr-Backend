@@ -355,7 +355,7 @@ export const getAllEmployees = async (req: Request, res: Response) => {
             // Exclude onboarding invitees who have not completed their profile yet
             if (!emp.password && emp.employeeProfile) {
                 const status = emp.employeeProfile.status;
-                if (status === 'Pending' || status === 'Failed' || status === 'Cancelled' || status === 'Expired') {
+                if (status === 'Pending' || status === 'Submitted' || status === 'Failed' || status === 'Cancelled' || status === 'Expired') {
                     return false;
                 }
                 let meta: any = {};
@@ -803,40 +803,7 @@ export const getEmployee = async (req: Request, res: Response) => {
                 id: Number(id),
                 tenantId
             },
-            include: {
-                employeeProfile: {
-                    include: {
-                        statutory: true,
-                        bank: true,
-                        documents: true,
-                        salary: true,
-                        salaryComponents: {
-                            include: {
-                                component: true,
-                            },
-                        },
-                    },
-                },
-                role: true,
-                manager: {
-                    include: {
-                        employeeProfile: true
-                    }
-                },
-                teamMembers: {
-                    include: {
-                        team: {
-                            include: {
-                                manager: {
-                                    include: {
-                                        employeeProfile: true
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            include: employeeInclude
         });
         const companySetting = await prisma.companySetting.findUnique({
             where: { tenantId }
@@ -844,6 +811,15 @@ export const getEmployee = async (req: Request, res: Response) => {
 
         if (!employee) {
             return res.status(404).json({ message: 'Employee not found' });
+        }
+
+        if (employee.employeeProfile) {
+            if (!employee.employeeProfile.department && employee.employeeProfile.departmentRef?.name) {
+                employee.employeeProfile.department = employee.employeeProfile.departmentRef.name;
+            }
+            if (!employee.employeeProfile.title && employee.employeeProfile.designationRef?.title) {
+                employee.employeeProfile.title = employee.employeeProfile.designationRef.title;
+            }
         }
 
         res.json({
@@ -1618,44 +1594,20 @@ export const getCurrentEmployee = async (req: Request, res: Response) => {
                 id: userId,
                 tenantId
             },
-            include: {
-                employeeProfile: {
-                    include: {
-                        statutory: true,
-                        bank: true,
-                        documents: true,
-                        salary: true,
-                        salaryComponents: {
-                            include: {
-                                component: true,
-                            },
-                        },
-                    },
-                },
-                role: true,
-                manager: {
-                    include: {
-                        employeeProfile: true
-                    }
-                },
-                teamMembers: {
-                    include: {
-                        team: {
-                            include: {
-                                manager: {
-                                    include: {
-                                        employeeProfile: true
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            include: employeeInclude
         });
 
         if (!employee) {
             return res.status(404).json({ message: 'Employee profile not found' });
+        }
+
+        if (employee.employeeProfile) {
+            if (!employee.employeeProfile.department && employee.employeeProfile.departmentRef?.name) {
+                employee.employeeProfile.department = employee.employeeProfile.departmentRef.name;
+            }
+            if (!employee.employeeProfile.title && employee.employeeProfile.designationRef?.title) {
+                employee.employeeProfile.title = employee.employeeProfile.designationRef.title;
+            }
         }
 
         res.json({
