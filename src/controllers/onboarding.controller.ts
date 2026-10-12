@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
-import { sendMail, employeeWelcomeTemplate } from '../utils/mail';
+import { sendMail, employeeWelcomeTemplate, employeeCorrectionRequestTemplate } from '../utils/mail';
 import { notifyAdmins } from '../utils/notification';
 
 const prisma = new PrismaClient();
@@ -242,7 +242,7 @@ export const getOnboardingInvites = async (req: Request, res: Response) => {
                 deletedAt: null,
                 employeeProfile: {
                     OR: [
-                        { status: { in: ['Pending', 'Submitted', 'Failed', 'Completed', 'Cancelled', 'Expired'] } },
+                        { status: { in: ['Pending', 'Submitted', 'Changes_Requested', 'Failed', 'Completed', 'Cancelled', 'Expired'] } },
                         { customFields: { contains: 'onboarding' } }
                     ]
                 }
@@ -266,6 +266,8 @@ export const getOnboardingInvites = async (req: Request, res: Response) => {
                     status = 'Completed';
                 } else if (rawStatus === 'Submitted' || meta.onboardingSubmitted) {
                     status = 'Submitted';
+                } else if (rawStatus === 'Changes_Requested') {
+                    status = 'Changes_Requested';
                 } else if (rawStatus === 'Cancelled') {
                     status = 'Cancelled';
                 } else if (rawStatus === 'Expired') {
@@ -280,7 +282,10 @@ export const getOnboardingInvites = async (req: Request, res: Response) => {
                     id: u.id,
                     email: u.email,
                     name: u.name,
-                    status
+                    status,
+                    adminRemarks: meta.adminRemarks || '',
+                    submittedAt: meta.submittedAt || null,
+                    changesRequestedAt: meta.changesRequestedAt || null
                 };
             })
             // Once completed, employee is in the Employee List and removed from Profile Completion
@@ -328,7 +333,21 @@ export const getOnboardingData = async (req: Request, res: Response) => {
 
         const user = await prisma.user.findFirst({
             where: { id: decoded.userId, tenantId, deletedAt: null },
-            include: { employeeProfile: true }
+            include: {
+                employeeProfile: {
+                    include: {
+                        statutory: true,
+                        bank: true,
+                        salary: true,
+                        documents: true,
+                        salaryComponents: {
+                            include: {
+                                component: true
+                            }
+                        }
+                    }
+                }
+            }
         });
 
         if (!user || !user.employeeProfile) {
@@ -343,8 +362,10 @@ export const getOnboardingData = async (req: Request, res: Response) => {
             meta = {};
         }
 
-        // 1. If user already submitted their profile details -> Link is expired
-        if (user.employeeProfile.status === 'Submitted' || meta.onboardingSubmitted === true) {
+        const isChangesRequested = user.employeeProfile.status === 'Changes_Requested';
+
+        // 1. If user already submitted their profile details -> Link is expired, unless admin requested changes
+        if (!isChangesRequested && (user.employeeProfile.status === 'Submitted' || meta.onboardingSubmitted === true)) {
             return res.status(400).json({
                 message: 'Your profile details have already been submitted and are awaiting administrator approval. This invitation link has expired and cannot be used again.'
             });
@@ -375,8 +396,8 @@ export const getOnboardingData = async (req: Request, res: Response) => {
             });
         }
 
-        // 5. If link was already marked as used or expired
-        if (user.employeeProfile.status === 'Expired' || meta.tokenUsed === true) {
+        // 5. If link was already marked as used or expired (unless admin requested changes)
+        if (!isChangesRequested && (user.employeeProfile.status === 'Expired' || meta.tokenUsed === true)) {
             return res.status(400).json({
                 message: 'This invitation link has expired. Please ask your administrator to send a new invite.'
             });
@@ -414,6 +435,10 @@ export const getOnboardingData = async (req: Request, res: Response) => {
             }
         ];
 
+        const nameParts = (user.name || '').trim().split(' ');
+        const firstName = nameParts[0] || '';
+        const lastName = nameParts.slice(1).join(' ') || '';
+
         return res.json({
             email: decoded.email,
             departments: departments.map(d => ({ id: d.id, name: d.name })),
@@ -421,11 +446,44 @@ export const getOnboardingData = async (req: Request, res: Response) => {
             roles,
             salaryComponents: salaryComponents || [],
             customFieldMasters: customFieldMasters || [],
+            adminRemarks: meta.adminRemarks || '',
+            fieldRemarks: meta.fieldRemarks || {},
+            isChangesRequested,
             initialData: {
+                firstName: firstName !== decoded.email.split('@')[0] ? firstName : '',
+                lastName,
                 phone: user.employeeProfile.phone || '',
+                dob: user.employeeProfile.dob ? new Date(user.employeeProfile.dob).toISOString().split('T')[0] : '',
+                bloodGroup: user.employeeProfile.bloodGroup || '',
+                address: user.employeeProfile.address || '',
                 departmentId: user.employeeProfile.departmentId || '',
                 designationId: user.employeeProfile.designationId || '',
-                joiningDate: user.employeeProfile.joiningDate ? new Date(user.employeeProfile.joiningDate).toISOString().split('T')[0] : ''
+                joiningDate: user.employeeProfile.joiningDate ? new Date(user.employeeProfile.joiningDate).toISOString().split('T')[0] : '',
+                pan: user.employeeProfile.statutory?.pan || '',
+                aadhaar: user.employeeProfile.statutory?.aadhaar || '',
+                uan: user.employeeProfile.statutory?.uan || '',
+                esic: user.employeeProfile.statutory?.esic || '',
+                bankName: user.employeeProfile.bank?.bankName || '',
+                ifsc: user.employeeProfile.bank?.ifsc || '',
+                accountNumber: user.employeeProfile.bank?.accountNumber || '',
+                salary: {
+                    basic: user.employeeProfile.salary?.basic ? String(user.employeeProfile.salary.basic) : ''
+                },
+                selectedSalaryComponents: (user.employeeProfile.salaryComponents || []).map((sc: any) => ({
+                    id: sc.componentId,
+                    componentId: sc.componentId,
+                    name: sc.component?.name || '',
+                    type: sc.component?.type || '',
+                    amount: sc.amount
+                })),
+                documents: (user.employeeProfile.documents || []).map((d: any) => ({
+                    id: d.id,
+                    name: d.name,
+                    url: d.url,
+                    type: d.type,
+                    originalName: d.originalName
+                })),
+                avatar: user.employeeProfile.avatar || null
             }
         });
     } catch (error: any) {
@@ -547,7 +605,9 @@ export const submitOnboardingProfile = async (req: Request, res: Response) => {
                 metaCheck = user.employeeProfile.customFields ? JSON.parse(user.employeeProfile.customFields) : {};
             } catch {}
 
-            if (user.employeeProfile.status === 'Submitted' || metaCheck.onboardingSubmitted === true) {
+            const isChangesRequested = user.employeeProfile.status === 'Changes_Requested';
+
+            if (!isChangesRequested && (user.employeeProfile.status === 'Submitted' || metaCheck.onboardingSubmitted === true)) {
                 return res.status(400).json({
                     message: 'Your profile details have already been submitted and are awaiting administrator approval.'
                 });
@@ -595,6 +655,8 @@ export const submitOnboardingProfile = async (req: Request, res: Response) => {
             onboardingCompleted: false,
             tokenUsed: true,
             onboardingToken: token,
+            adminRemarks: null,
+            fieldRemarks: null,
             submittedAt: new Date().toISOString()
         };
 
@@ -1008,5 +1070,200 @@ export const deleteOnboardingInvite = async (req: Request, res: Response) => {
     } catch (error: any) {
         console.error('Error deleting onboarding invite:', error);
         return res.status(500).json({ message: error.message || 'Failed to delete invite' });
+    }
+};
+
+// 7. Admin reviews submitted employee onboarding profile
+export const getOnboardingDetails = async (req: Request, res: Response) => {
+    try {
+        const tenantId = (req as any).user?.tenantId;
+        const { id } = req.params;
+
+        if (!tenantId) {
+            return res.status(401).json({ message: 'Unauthorized' });
+        }
+
+        const userId = parseInt(id, 10);
+        if (isNaN(userId)) {
+            return res.status(400).json({ message: 'Invalid employee ID' });
+        }
+
+        const user = await prisma.user.findFirst({
+            where: { id: userId, tenantId, deletedAt: null },
+            include: {
+                role: true,
+                employeeProfile: {
+                    include: {
+                        statutory: true,
+                        bank: true,
+                        salary: true,
+                        documents: true,
+                        salaryComponents: {
+                            include: {
+                                component: true
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        if (!user || !user.employeeProfile) {
+            return res.status(404).json({ message: 'Employee onboarding profile not found' });
+        }
+
+        let meta: any = {};
+        try {
+            meta = user.employeeProfile.customFields ? JSON.parse(user.employeeProfile.customFields) : {};
+        } catch {
+            meta = {};
+        }
+
+        const cfMasters = await prisma.customField.findMany({
+            where: { tenantId }
+        });
+
+        return res.json({
+            user: {
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                role: user.role?.name || 'Employee',
+                roleId: user.roleId
+            },
+            profile: {
+                id: user.employeeProfile.id,
+                status: user.employeeProfile.status,
+                phone: user.employeeProfile.phone,
+                dob: user.employeeProfile.dob,
+                joiningDate: user.employeeProfile.joiningDate,
+                departmentId: user.employeeProfile.departmentId,
+                department: user.employeeProfile.department,
+                designationId: user.employeeProfile.designationId,
+                title: user.employeeProfile.title,
+                bloodGroup: user.employeeProfile.bloodGroup,
+                address: user.employeeProfile.address,
+                avatar: user.employeeProfile.avatar
+            },
+            statutory: user.employeeProfile.statutory,
+            bank: user.employeeProfile.bank,
+            salary: user.employeeProfile.salary,
+            salaryComponents: (user.employeeProfile.salaryComponents || []).map((sc: any) => ({
+                id: sc.componentId,
+                componentId: sc.componentId,
+                name: sc.component?.name || '',
+                type: sc.component?.type || '',
+                amount: sc.amount
+            })),
+            documents: user.employeeProfile.documents || [],
+            customFieldsMeta: meta,
+            customFieldMasters: cfMasters || [],
+            adminRemarks: meta.adminRemarks || '',
+            fieldRemarks: meta.fieldRemarks || {},
+            submittedAt: meta.submittedAt || null,
+            changesRequestedAt: meta.changesRequestedAt || null
+        });
+    } catch (error: any) {
+        console.error('Error in getOnboardingDetails:', error);
+        return res.status(500).json({ message: error.message || 'Failed to fetch submitted details' });
+    }
+};
+
+// 8. Admin requests correction/changes from candidate with remarks
+export const requestOnboardingChanges = async (req: Request, res: Response) => {
+    try {
+        const tenantId = (req as any).user?.tenantId;
+        const { id } = req.params;
+        const { remarks, fieldRemarks } = req.body;
+
+        if (!tenantId) {
+            return res.status(401).json({ message: 'Unauthorized' });
+        }
+
+        const cleanRemarks = String(remarks || '').trim();
+        if (!cleanRemarks) {
+            return res.status(400).json({ message: 'Please write remarks explaining what the employee needs to correct.' });
+        }
+
+        const userId = parseInt(id, 10);
+        if (isNaN(userId)) {
+            return res.status(400).json({ message: 'Invalid employee ID' });
+        }
+
+        const user = await prisma.user.findFirst({
+            where: { id: userId, tenantId, deletedAt: null },
+            include: { employeeProfile: true }
+        });
+
+        if (!user || !user.employeeProfile) {
+            return res.status(404).json({ message: 'Employee not found' });
+        }
+
+        // Generate fresh 7-day token so employee can reopen form and correct
+        const token = jwt.sign(
+            { email: user.email, tenantId, userId: user.id, type: 'onboarding' },
+            process.env.JWT_SECRET || 'secret',
+            { expiresIn: '7d' }
+        );
+
+        let meta: any = {};
+        try {
+            meta = user.employeeProfile.customFields ? JSON.parse(user.employeeProfile.customFields) : {};
+        } catch {
+            meta = {};
+        }
+
+        const updatedMeta = {
+            ...meta,
+            onboardingToken: token,
+            tokenUsed: false,
+            onboardingSubmitted: false,
+            adminRemarks: cleanRemarks,
+            fieldRemarks: fieldRemarks || {},
+            changesRequestedAt: new Date().toISOString()
+        };
+
+        await prisma.employeeProfile.update({
+            where: { id: user.employeeProfile.id },
+            data: {
+                status: 'Changes_Requested',
+                customFields: JSON.stringify(updatedMeta)
+            }
+        });
+
+        // Determine link URL
+        const requestOrigin = (req.headers.origin as string) || (req.headers.referer ? new URL(req.headers.referer as string).origin : '');
+        const primaryUrl = (requestOrigin && requestOrigin.startsWith('http'))
+            ? requestOrigin.replace(/\/+$/, '')
+            : (process.env.FRONTEND_URL || 'https://omnihr-frontend.vercel.app').replace(/\/+$/, '');
+        const correctionUrl = `${primaryUrl}/complete-profile?token=${token}`;
+
+        // Send email to candidate with remarks
+        try {
+            const emailContent = employeeCorrectionRequestTemplate({
+                name: user.name || user.email.split('@')[0],
+                remarks: cleanRemarks,
+                correctionUrl
+            });
+
+            await sendMail({
+                to: user.email,
+                subject: 'Action Required: Updates needed on your onboarding profile - OmniHR',
+                html: emailContent.html,
+                text: emailContent.text
+            });
+            console.log(`[Onboarding] Sent correction email with remarks to ${user.email}`);
+        } catch (mailError) {
+            console.error('[Onboarding] Error sending correction email:', mailError);
+        }
+
+        return res.json({
+            success: true,
+            message: `Correction remarks sent to ${user.email} successfully!`,
+            status: 'Changes_Requested'
+        });
+    } catch (error: any) {
+        console.error('Error requesting onboarding changes:', error);
+        return res.status(500).json({ message: error.message || 'Failed to send remarks' });
     }
 };

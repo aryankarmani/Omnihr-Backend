@@ -21,7 +21,9 @@ import {
   submitOnboardingProfile,
   deleteOnboardingInvite,
   cancelOnboarding,
-  approveOnboarding
+  approveOnboarding,
+  getOnboardingDetails,
+  requestOnboardingChanges
 } from '../controllers/onboarding.controller';
 import { authenticate, requirePermission, checkUserHasPermission } from '../middleware/auth';
 import { upload } from '../middleware/upload';
@@ -58,6 +60,8 @@ router.delete('/onboarding-invite/:id', authenticate, deleteOnboardingInvite);
 router.get('/public-onboarding-data', getOnboardingData);
 router.post('/public-onboard', upload.any(), submitOnboardingProfile);
 router.post('/public-onboard-cancel', cancelOnboarding);
+router.get('/onboarding-details/:id', authenticate, getOnboardingDetails);
+router.post('/request-onboarding-changes/:id', authenticate, requestOnboardingChanges);
 router.post('/approve-onboarding/:id', authenticate, approveOnboarding);
 
 router.get('/check-email', authenticate, checkEmployeeEmail);
