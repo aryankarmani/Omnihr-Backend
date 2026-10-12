@@ -56,7 +56,7 @@ router.post('/bulk-invite-onboarding', authenticate, bulkInviteOnboarding);
 router.get('/onboarding-invites', authenticate, getOnboardingInvites);
 router.delete('/onboarding-invite/:id', authenticate, deleteOnboardingInvite);
 router.get('/public-onboarding-data', getOnboardingData);
-router.post('/public-onboard', submitOnboardingProfile);
+router.post('/public-onboard', upload.any(), submitOnboardingProfile);
 router.post('/public-onboard-cancel', cancelOnboarding);
 router.post('/approve-onboarding/:id', authenticate, approveOnboarding);
 
