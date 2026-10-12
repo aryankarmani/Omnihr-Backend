@@ -15,6 +15,7 @@ import {
 } from '../controllers/employee.controller';
 import {
   inviteOnboarding,
+  bulkInviteOnboarding,
   getOnboardingInvites,
   getOnboardingData,
   submitOnboardingProfile,
@@ -50,6 +51,7 @@ const authorizeDocumentAccess = async (req: any, res: any, next: any) => {
 
 // Onboarding & Invitation Endpoints
 router.post('/invite-onboarding', authenticate, inviteOnboarding);
+router.post('/bulk-invite-onboarding', authenticate, bulkInviteOnboarding);
 router.get('/onboarding-invites', authenticate, getOnboardingInvites);
 router.delete('/onboarding-invite/:id', authenticate, deleteOnboardingInvite);
 router.get('/public-onboarding-data', getOnboardingData);

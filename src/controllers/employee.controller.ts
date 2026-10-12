@@ -96,8 +96,7 @@ export const checkEmployeeEmail = async (req: Request, res: Response) => {
         const tenantId = (req as any).user?.tenantId;
         const where: any = {
             email: { equals: rawEmail, mode: 'insensitive' },
-            deletedAt: null,
-            isActive: true,
+            deletedAt: null
         };
         if (tenantId) {
             where.tenantId = tenantId;
@@ -108,14 +107,15 @@ export const checkEmployeeEmail = async (req: Request, res: Response) => {
             include: { employeeProfile: true }
         });
 
-        // Email is in use if user exists with password or active employee profile (not an uncompleted pending invite)
+        // Email is in use if user exists with password or active employee profile (not an incomplete/cancelled onboarding invite)
         const isAlreadyInUse = !!(
             existingUser &&
             (
                 existingUser.password ||
                 existingUser.employeeProfile?.status === 'Active' ||
                 existingUser.employeeProfile?.status === 'active' ||
-                (existingUser.employeeProfile && existingUser.employeeProfile.status !== 'Pending')
+                existingUser.employeeProfile?.status === 'Completed' ||
+                (existingUser.employeeProfile && !['Pending', 'Failed', 'Cancelled', 'Expired'].includes(existingUser.employeeProfile.status))
             )
         );
 
@@ -351,7 +351,25 @@ export const getAllEmployees = async (req: Request, res: Response) => {
         });
 
 
-        const employeesWithCompletion = employees.map(emp => ({
+        const completedEmployees = employees.filter((emp: any) => {
+            // Exclude onboarding invitees who have not completed their profile yet
+            if (!emp.password && emp.employeeProfile) {
+                const status = emp.employeeProfile.status;
+                if (status === 'Pending' || status === 'Failed' || status === 'Cancelled' || status === 'Expired') {
+                    return false;
+                }
+                let meta: any = {};
+                try {
+                    meta = emp.employeeProfile.customFields ? JSON.parse(emp.employeeProfile.customFields) : {};
+                } catch {}
+                if (meta.onboardingToken && !meta.onboardingCompleted) {
+                    return false;
+                }
+            }
+            return true;
+        });
+
+        const employeesWithCompletion = completedEmployees.map(emp => ({
             ...emp,
             profileCompletion: calculateProfileCompletion(emp)
         }));
