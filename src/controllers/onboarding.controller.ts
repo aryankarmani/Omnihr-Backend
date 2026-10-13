@@ -5,6 +5,7 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { sendMail, employeeWelcomeTemplate, employeeCorrectionRequestTemplate } from '../utils/mail';
 import { notifyAdmins } from '../utils/notification';
+import { createAuditLog } from '../utils/auditLog';
 
 const prisma = new PrismaClient();
 
@@ -173,6 +174,23 @@ export const inviteOnboarding = async (req: Request, res: Response) => {
         const requestOrigin = (req.headers.origin as string) || (req.headers.referer ? new URL(req.headers.referer as string).origin : '');
         const invite = await sendSingleInviteInternal(tenantId, email, requestOrigin);
 
+        try {
+            await createAuditLog({
+                tenantId,
+                module: 'Employee',
+                action: 'Created',
+                description: `Onboarding invitation sent to ${invite.email}.`,
+                performedById: (req as any).user?.id,
+                performedBy: (req as any).user?.name || (req as any).user?.email || 'SystemAdmin',
+                performedByRole: (req as any).user?.role,
+                targetUserId: invite.id,
+                targetUser: invite.email,
+                targetUserRole: 'EMPLOYEE'
+            });
+        } catch (auditErr) {
+            console.error('Audit log error on inviteOnboarding:', auditErr);
+        }
+
         return res.json({
             success: true,
             message: `Invitation email sent successfully to ${invite.email}`,
@@ -216,6 +234,28 @@ export const bulkInviteOnboarding = async (req: Request, res: Response) => {
             });
             const chunkResults = await Promise.all(chunkPromises);
             results.push(...chunkResults);
+        }
+
+        // Log successful invitations
+        for (const r of results) {
+            if (r.success && r.invite) {
+                try {
+                    await createAuditLog({
+                        tenantId,
+                        module: 'Employee',
+                        action: 'Created',
+                        description: `Onboarding invitation sent to ${r.email}.`,
+                        performedById: (req as any).user?.id,
+                        performedBy: (req as any).user?.name || (req as any).user?.email || 'SystemAdmin',
+                        performedByRole: (req as any).user?.role,
+                        targetUserId: r.invite.id,
+                        targetUser: r.email,
+                        targetUserRole: 'EMPLOYEE'
+                    });
+                } catch (auditErr) {
+                    console.error('Audit log error on bulk invite:', auditErr);
+                }
+            }
         }
 
         return res.json({
@@ -574,6 +614,21 @@ export const submitOnboardingProfile = async (req: Request, res: Response) => {
             selectedSalaryComponents,
             customFieldValues = {}
         } = data || {};
+
+        if (
+            !firstName?.trim() ||
+            !lastName?.trim() ||
+            !phone?.trim() ||
+            !dob ||
+            !joiningDate ||
+            !departmentId ||
+            !designationId ||
+            !roleId ||
+            !bloodGroup?.trim() ||
+            !address?.trim()
+        ) {
+            return res.status(400).json({ message: 'All personal details are required' });
+        }
 
         const fullName = `${firstName || ''} ${lastName || ''}`.trim() || email.split('@')[0];
 
@@ -957,6 +1012,23 @@ export const approveOnboarding = async (req: Request, res: Response) => {
             console.error('[Onboarding] Error sending credentials email:', mailError);
         }
 
+        try {
+            await createAuditLog({
+                tenantId,
+                module: 'Employee',
+                action: 'Created',
+                description: `New employee ${user.name || user.email} was created.`,
+                performedById: (req as any).user?.id,
+                performedBy: (req as any).user?.name || (req as any).user?.email || 'SystemAdmin',
+                performedByRole: (req as any).user?.role,
+                targetUserId: user.id,
+                targetUser: user.name || user.email,
+                targetUserRole: 'EMPLOYEE'
+            });
+        } catch (auditErr) {
+            console.error('Audit log error on approveOnboarding:', auditErr);
+        }
+
         return res.json({
             success: true,
             message: `Account for ${user.email} has been approved and login credentials have been sent!`
@@ -1038,33 +1110,55 @@ export const deleteOnboardingInvite = async (req: Request, res: Response) => {
             return res.status(404).json({ message: 'Pending invite not found or cannot be deleted' });
         }
 
-        await prisma.$transaction(async (tx) => {
-            if (existingUser.employeeProfile) {
-                const profileId = existingUser.employeeProfile.id;
-                await tx.statutoryDetails.deleteMany({ where: { profileId } });
-                await tx.bankDetails.deleteMany({ where: { profileId } });
-                await tx.document.deleteMany({ where: { profileId } });
-                await tx.salaryStructure.deleteMany({ where: { profileId } });
-                await tx.salaryRevision.deleteMany({ where: { profileId } });
-                await tx.employeeSalaryComponent.deleteMany({ where: { profileId } });
-                await tx.employeeProfile.delete({ where: { id: profileId } });
-            }
+        const deleteOps: any[] = [];
 
-            await tx.refreshToken.deleteMany({ where: { userId } });
-            await tx.notification.deleteMany({ where: { userId } });
-            await tx.directConversationMember.deleteMany({ where: { userId } });
-            await tx.commChannelMember.deleteMany({ where: { userId } });
-            await tx.chatMessageRead.deleteMany({ where: { userId } });
-            await tx.chatMessage.deleteMany({ where: { senderId: userId } });
-            await tx.teamMember.deleteMany({ where: { userId } });
-            await tx.leave.deleteMany({ where: { userId } });
-            await tx.attendanceRecord.deleteMany({ where: { userId } });
-            await tx.attendanceRegularization.deleteMany({ where: { userId } });
-            await tx.taxRegimeSelection.deleteMany({ where: { userId } });
-            await tx.investmentDeclaration.deleteMany({ where: { userId } });
+        if (existingUser.employeeProfile) {
+            const profileId = existingUser.employeeProfile.id;
+            deleteOps.push(
+                prisma.statutoryDetails.deleteMany({ where: { profileId } }),
+                prisma.bankDetails.deleteMany({ where: { profileId } }),
+                prisma.document.deleteMany({ where: { profileId } }),
+                prisma.salaryStructure.deleteMany({ where: { profileId } }),
+                prisma.salaryRevision.deleteMany({ where: { profileId } }),
+                prisma.employeeSalaryComponent.deleteMany({ where: { profileId } }),
+                prisma.employeeProfile.delete({ where: { id: profileId } })
+            );
+        }
 
-            await tx.user.delete({ where: { id: userId } });
-        });
+        deleteOps.push(
+            prisma.refreshToken.deleteMany({ where: { userId } }),
+            prisma.notification.deleteMany({ where: { userId } }),
+            prisma.directConversationMember.deleteMany({ where: { userId } }),
+            prisma.commChannelMember.deleteMany({ where: { userId } }),
+            prisma.chatMessageRead.deleteMany({ where: { userId } }),
+            prisma.chatMessage.deleteMany({ where: { senderId: userId } }),
+            prisma.teamMember.deleteMany({ where: { userId } }),
+            prisma.leave.deleteMany({ where: { userId } }),
+            prisma.attendanceRecord.deleteMany({ where: { userId } }),
+            prisma.attendanceRegularization.deleteMany({ where: { userId } }),
+            prisma.taxRegimeSelection.deleteMany({ where: { userId } }),
+            prisma.investmentDeclaration.deleteMany({ where: { userId } }),
+            prisma.user.delete({ where: { id: userId } })
+        );
+
+        await prisma.$transaction(deleteOps);
+
+        try {
+            await createAuditLog({
+                tenantId,
+                module: 'Employee',
+                action: 'Deleted',
+                description: `Onboarding invite for ${existingUser.name || existingUser.email} was deleted.`,
+                performedById: (req as any).user?.id,
+                performedBy: (req as any).user?.name || (req as any).user?.email || 'SystemAdmin',
+                performedByRole: (req as any).user?.role,
+                targetUserId: existingUser.id,
+                targetUser: existingUser.name || existingUser.email,
+                targetUserRole: 'EMPLOYEE'
+            });
+        } catch (auditErr) {
+            console.error('Audit log error on deleteOnboardingInvite:', auditErr);
+        }
 
         return res.json({ success: true, message: 'Onboarding invite deleted successfully from database' });
     } catch (error: any) {
