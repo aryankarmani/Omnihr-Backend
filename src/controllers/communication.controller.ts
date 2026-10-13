@@ -515,6 +515,174 @@ export const leaveConversation = async (req: AuthRequest, res: Response) => {
     }
 };
 
+// 6d. Add Members to Group Conversation
+export const addConversationMembers = async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.user!.id;
+        const tenantId = req.user!.tenantId;
+        const convId = Number(req.params.id);
+        const { userIds, userId: singleUserId } = req.body;
+
+        const targetUserIds: number[] = Array.isArray(userIds)
+            ? userIds.map(Number)
+            : singleUserId
+            ? [Number(singleUserId)]
+            : [];
+
+        if (targetUserIds.length === 0) {
+            return res.status(400).json({ message: 'At least one employee must be selected' });
+        }
+
+        const conv = await prisma.directConversation.findFirst({
+            where: { id: convId, tenantId },
+            include: { participants: { include: { user: { select: userSelect } } } }
+        });
+
+        if (!conv) return res.status(404).json({ message: 'Conversation not found' });
+        if (!conv.isGroup) {
+            return res.status(400).json({ message: 'Members can only be added to group chats' });
+        }
+
+        // Verify authorization
+        const isParticipant = conv.participants.some(p => p.userId === userId);
+        const isPlatformAdmin = req.user!.role === 'HR_ADMIN' || req.user!.role === 'SYSTEM_ADMIN';
+        if (!isParticipant && !isPlatformAdmin) {
+            return res.status(403).json({ message: 'Not authorized to add members to this group' });
+        }
+
+        // Filter out employees who are already members
+        const existingMemberIds = new Set(conv.participants.map(p => p.userId));
+        const newMemberIds = targetUserIds.filter(id => !existingMemberIds.has(id));
+
+        if (newMemberIds.length === 0) {
+            return res.status(400).json({ message: 'Selected employees are already in this group' });
+        }
+
+        // Verify valid active users in same tenant
+        const validUsers = await prisma.user.findMany({
+            where: {
+                id: { in: newMemberIds },
+                tenantId,
+                isActive: true
+            },
+            select: userSelect
+        });
+
+        if (validUsers.length === 0) {
+            return res.status(400).json({ message: 'No valid active employees found to add' });
+        }
+
+        // Add them to direct conversation members
+        await prisma.directConversationMember.createMany({
+            data: validUsers.map((u: any) => ({
+                conversationId: convId,
+                userId: u.id
+            })),
+            skipDuplicates: true
+        });
+
+        // Add a system announcement message into chat
+        const adderName = (req.user as any)?.name || 'An admin';
+        const addedNames = validUsers.map((u: any) => u.name).join(', ');
+        const sysMsg = await prisma.chatMessage.create({
+            data: {
+                tenantId,
+                senderId: userId,
+                conversationId: convId,
+                content: `${adderName} added ${addedNames} to the group`,
+            },
+            include: {
+                sender: { select: userSelect }
+            }
+        });
+
+        // Fetch updated conversation with full participants
+        const updatedConv = await prisma.directConversation.findUnique({
+            where: { id: convId },
+            include: {
+                participants: { include: { user: { select: userSelect } } },
+                messages: {
+                    take: 1,
+                    orderBy: { createdAt: 'desc' }
+                }
+            }
+        });
+
+        try {
+            const io = getIO();
+            io.to(`conversation_${convId}`).emit('new_conversation_message', { message: sysMsg });
+            io.to(`conversation_${convId}`).emit('conversation_members_added', { conversationId: convId, newMembers: validUsers });
+            io.to(`tenant_${tenantId}`).emit('conversation_updated', updatedConv);
+        } catch (_) {}
+
+        return res.json({
+            message: 'Members added successfully',
+            conversation: updatedConv,
+            addedUsers: validUsers
+        });
+    } catch (err: any) {
+        console.error('[Add conversation members error]', err);
+        return res.status(500).json({ message: 'Failed to add members', error: err.message });
+    }
+};
+
+// 6e. Remove Member from Group Conversation
+export const removeConversationMember = async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.user!.id;
+        const tenantId = req.user!.tenantId;
+        const convId = Number(req.params.id);
+        const targetUserId = Number(req.params.userId);
+
+        const conv = await prisma.directConversation.findFirst({
+            where: { id: convId, tenantId },
+            include: { participants: { include: { user: { select: userSelect } } } }
+        });
+
+        if (!conv) return res.status(404).json({ message: 'Conversation not found' });
+        if (!conv.isGroup) {
+            return res.status(400).json({ message: 'Cannot remove members from a direct chat' });
+        }
+
+        const isParticipant = conv.participants.some(p => p.userId === userId);
+        const isPlatformAdmin = req.user!.role === 'HR_ADMIN' || req.user!.role === 'SYSTEM_ADMIN';
+        if (!isParticipant && !isPlatformAdmin) {
+            return res.status(403).json({ message: 'Not authorized to remove members' });
+        }
+
+        await prisma.directConversationMember.deleteMany({
+            where: { conversationId: convId, userId: targetUserId }
+        });
+
+        const targetName = conv.participants.find(p => p.userId === targetUserId)?.user?.name || 'A member';
+        const removerName = (req.user as any)?.name || 'An admin';
+
+        const sysMsg = await prisma.chatMessage.create({
+            data: {
+                tenantId,
+                senderId: userId,
+                conversationId: convId,
+                content: `${removerName} removed ${targetName} from the group`,
+            },
+            include: {
+                sender: { select: userSelect }
+            }
+        });
+
+        try {
+            const io = getIO();
+            io.to(`conversation_${convId}`).emit('new_conversation_message', { message: sysMsg });
+            io.to(`conversation_${convId}`).emit('conversation_member_removed', { conversationId: convId, userId: targetUserId });
+            io.to(`tenant_${tenantId}`).emit('conversation_updated', { conversationId: convId });
+        } catch (_) {}
+
+        return res.json({ message: 'Member removed successfully' });
+    } catch (err: any) {
+        console.error('[Remove conversation member error]', err);
+        return res.status(500).json({ message: 'Failed to remove member', error: err.message });
+    }
+};
+
 // 7. Get Messages (Channel or Conversation)
 export const getMessages = async (req: AuthRequest, res: Response) => {
     try {

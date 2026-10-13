@@ -13,6 +13,8 @@ import {
     getOrCreateConversation,
     deleteConversation,
     leaveConversation,
+    addConversationMembers,
+    removeConversationMember,
     getMessages,
     sendMessage,
     editMessage,
@@ -85,6 +87,8 @@ router.delete('/channels/:id/members/:userId', requirePermission('CHAT_CREATE'),
 router.post('/conversations', getOrCreateConversation);
 router.delete('/conversations/:id', deleteConversation);
 router.post('/conversations/:id/leave', leaveConversation);
+router.post('/conversations/:id/members', addConversationMembers);
+router.delete('/conversations/:id/members/:userId', removeConversationMember);
 
 // Messages
 router.get('/messages', getMessages);

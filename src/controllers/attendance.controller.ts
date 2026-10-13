@@ -874,7 +874,18 @@ export const getAttendanceStats = async (req: AuthRequest, res: Response) => {
             })
         ]);
 
-        const joiningDate = user?.employeeProfile?.joiningDate || user?.createdAt;
+        const rawJoiningDate = user?.employeeProfile?.joiningDate ? new Date(user.employeeProfile.joiningDate) : null;
+        const userCreatedAt = user?.createdAt ? new Date(user.createdAt) : null;
+
+        // Effective tracking start date:
+        // If employee joined before being onboarded to the system, tracking starts from onboarding date
+        let trackingStartDate: Date | null = null;
+        if (rawJoiningDate && userCreatedAt) {
+            trackingStartDate = rawJoiningDate < userCreatedAt ? userCreatedAt : rawJoiningDate;
+        } else {
+            trackingStartDate = rawJoiningDate || userCreatedAt;
+        }
+
         const numYear = Number(year);
         const numMonth = Number(month);
         const daysInMonth = new Date(numYear, numMonth, 0).getDate();
@@ -887,10 +898,10 @@ export const getAttendanceStats = async (req: AuthRequest, res: Response) => {
                 const currentDay = new Date(numYear, numMonth - 1, d);
                 const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 
-                if (joiningDate) {
-                    const jdCopy = new Date(joiningDate);
-                    jdCopy.setHours(0, 0, 0, 0);
-                    if (currentDay < jdCopy) continue;
+                if (trackingStartDate) {
+                    const trackCopy = new Date(trackingStartDate);
+                    trackCopy.setHours(0, 0, 0, 0);
+                    if (currentDay < trackCopy) continue;
                 }
 
                 // Skip weekends (Saturday=6, Sunday=0)

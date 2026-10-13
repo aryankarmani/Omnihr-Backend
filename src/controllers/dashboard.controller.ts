@@ -301,6 +301,7 @@ export const getEmployeeOverview = async (req: Request, res: Response) => {
                         id: true,
                         name: true,
                         email: true,
+                        createdAt: true,
                     },
                 },
                 shiftRef: true,
@@ -380,9 +381,10 @@ export const getEmployeeOverview = async (req: Request, res: Response) => {
             }
             return count;
         };
-
         const formatted = employees.map(emp => {
-            const empJoining = emp.joiningDate ? new Date(emp.joiningDate) : firstDayOfMonth;
+            const empCreatedAt = emp.user?.createdAt ? new Date(emp.user.createdAt) : firstDayOfMonth;
+            const rawJoining = emp.joiningDate ? new Date(emp.joiningDate) : empCreatedAt;
+            const empJoining = (rawJoining && empCreatedAt && rawJoining < empCreatedAt) ? empCreatedAt : rawJoining;
             let workingDays = 0;
 
             if (empJoining > today) {
