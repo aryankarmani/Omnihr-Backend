@@ -360,7 +360,8 @@ export const getOrCreateConversation = async (req: AuthRequest, res: Response) =
                         take: 1,
                         orderBy: { createdAt: 'desc' }
                     }
-                }
+                },
+                orderBy: { updatedAt: 'desc' }
             });
 
             if (existing) {

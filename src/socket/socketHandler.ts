@@ -409,16 +409,54 @@ export const initSocket = (httpServer: HttpServer) => {
             }
         });
 
-        socket.on('cancel_call', async (data: { callId: number; receiverId: number }) => {
+        socket.on('cancel_call', async (data: { callId: number; receiverId?: number; participantIds?: number[]; isGroup?: boolean }) => {
             try {
-                await prisma.callRecord.update({
-                    where: { id: data.callId },
-                    data: { status: 'MISSED', endedAt: new Date() }
-                }).catch(() => {});
+                if (data.callId) {
+                    await prisma.callRecord.update({
+                        where: { id: data.callId },
+                        data: { status: 'MISSED', endedAt: new Date() }
+                    }).catch(() => {});
 
-                io.to(`user_${data.receiverId}`).emit('call_cancelled', {
-                    callId: data.callId,
+                    await prisma.callRecordParticipant.updateMany({
+                        where: { callId: data.callId, status: { in: ['JOINED', 'INITIATED'] } },
+                        data: { status: 'MISSED' }
+                    }).catch(() => {});
+                }
+
+                // Collect all recipient user IDs to notify
+                const targetIds = new Set<number>();
+                if (data.receiverId) targetIds.add(Number(data.receiverId));
+                if (Array.isArray(data.participantIds)) {
+                    data.participantIds.forEach(id => targetIds.add(Number(id)));
+                }
+
+                // If callId is present, also look up participants from the DB in case FE didn't pass all IDs
+                if (data.callId) {
+                    const dbParticipants = await prisma.callRecordParticipant.findMany({
+                        where: { callId: data.callId },
+                        select: { userId: true }
+                    }).catch(() => []);
+                    dbParticipants.forEach(p => targetIds.add(Number(p.userId)));
+                }
+
+                // Emit call_cancelled to all targets (except caller)
+                targetIds.forEach(targetId => {
+                    if (targetId !== user.id) {
+                        io.to(`user_${targetId}`).emit('call_cancelled', {
+                            callId: data.callId,
+                        });
+                    }
                 });
+
+                // Also notify the call room in case anyone joined
+                if (data.callId) {
+                    io.to(`call_room_${data.callId}`).emit('call_cancelled', {
+                        callId: data.callId,
+                    });
+                    io.to(`call_room_${data.callId}`).emit('call_ended', {
+                        callId: data.callId,
+                    });
+                }
             } catch (err) {
                 console.error('[Socket cancel_call error]', err);
             }
@@ -449,6 +487,22 @@ export const initSocket = (httpServer: HttpServer) => {
                         data: { status: 'COMPLETED', endedAt: new Date() }
                     }).catch(() => {});
                 }
+
+                // If no active sockets left in room, dismiss incoming ringing for anyone who never answered
+                if (roomSockets.length === 0) {
+                    const pendingParticipants = await prisma.callRecordParticipant.findMany({
+                        where: { callId: data.callId, status: { not: 'LEFT' } },
+                        select: { userId: true }
+                    }).catch(() => []);
+
+                    pendingParticipants.forEach(p => {
+                        if (p.userId !== user.id) {
+                            io.to(`user_${p.userId}`).emit('call_cancelled', {
+                                callId: data.callId,
+                            });
+                        }
+                    });
+                }
             } catch (err) {
                 console.error('[Socket leave_group_call error]', err);
             }
@@ -472,10 +526,24 @@ export const initSocket = (httpServer: HttpServer) => {
                         callId: data.callId,
                         duration
                     });
+                    // Also dismiss incoming ringing for any invited members who haven't accepted
+                    const dbParticipants = await prisma.callRecordParticipant.findMany({
+                        where: { callId: data.callId },
+                        select: { userId: true }
+                    }).catch(() => []);
+                    dbParticipants.forEach(p => {
+                        if (p.userId !== user.id) {
+                            io.to(`user_${p.userId}`).emit('call_ended', { callId: data.callId, duration });
+                            io.to(`user_${p.userId}`).emit('call_cancelled', { callId: data.callId });
+                        }
+                    });
                 } else if (data.targetUserId) {
                     io.to(`user_${data.targetUserId}`).emit('call_ended', {
                         callId: data.callId,
                         duration
+                    });
+                    io.to(`user_${data.targetUserId}`).emit('call_cancelled', {
+                        callId: data.callId,
                     });
                 }
             } catch (err) {

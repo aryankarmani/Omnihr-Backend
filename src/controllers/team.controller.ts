@@ -297,6 +297,9 @@ export const createTeam = async (req: AuthRequest, res: Response) => {
       }
 
       return createdTeam;
+    }, {
+      timeout: 30000,
+      maxWait: 15000,
     });
 
     const fullTeam = await prisma.team.findUnique({
@@ -416,6 +419,9 @@ export const updateTeam = async (req: AuthRequest, res: Response) => {
           ...(managerId !== undefined && { managerId: newManagerId }),
         },
       });
+    }, {
+      timeout: 30000,
+      maxWait: 15000,
     });
 
     const team = await prisma.team.findUnique({
@@ -620,26 +626,33 @@ export const addMembers = async (req: AuthRequest, res: Response) => {
         }
       }
 
-      // ✅ UPDATED: Add selected members
-      for (const userId of memberIds) {
-        const user = await validateUserInTenant(tx, tenantId, userId);
+      // ✅ Batch add all selected members at once
+      if (memberIds.length > 0) {
+        const validUsers = await tx.user.findMany({
+          where: {
+            id: { in: memberIds },
+            tenantId,
+            isActive: true,
+            deletedAt: null,
+          },
+          select: { id: true },
+        });
 
-        if (user) {
-          await tx.teamMember.upsert({
-            where: {
-              teamId_userId: {
-                teamId,
-                userId,
-              },
-            },
-            update: {},
-            create: {
+        const validUserIds = validUsers.map((u) => u.id);
+
+        if (validUserIds.length > 0) {
+          await tx.teamMember.createMany({
+            data: validUserIds.map((userId) => ({
               teamId,
               userId,
-            },
+            })),
+            skipDuplicates: true,
           });
         }
       }
+    }, {
+      timeout: 30000,
+      maxWait: 15000,
     });
 
     const updatedTeam = await prisma.team.findUnique({
