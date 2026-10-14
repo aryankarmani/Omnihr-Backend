@@ -171,15 +171,50 @@ export const initSocket = (httpServer: HttpServer) => {
         socket.on('mark_read', async (data: { messageId?: number; conversationId?: number; channelId?: number }) => {
             try {
                 if (data && data.conversationId) {
-                    const convId: number = data.conversationId;
+                    const convId: number = Number(data.conversationId);
+                    const readAt = new Date();
                     await prisma.directConversationMember.updateMany({
                         where: { conversationId: convId, userId: user.id },
-                        data: { lastReadAt: new Date() }
+                        data: { lastReadAt: readAt }
                     });
-                    socket.to(`conv_${convId}`).emit('conversation_read', {
+
+                    // Mark unread messages sent by others in this conversation
+                    const unreadMsgs = await prisma.chatMessage.findMany({
+                        where: {
+                            conversationId: convId,
+                            senderId: { not: user.id },
+                            readReceipts: { none: { userId: user.id } }
+                        },
+                        select: { id: true }
+                    });
+
+                    if (unreadMsgs.length > 0) {
+                        await prisma.chatMessageRead.createMany({
+                            data: unreadMsgs.map(m => ({
+                                messageId: m.id,
+                                userId: user.id,
+                                readAt
+                            })),
+                            skipDuplicates: true
+                        }).catch(() => {});
+                    }
+
+                    const payload = {
                         conversationId: convId,
                         userId: user.id,
-                        readAt: new Date()
+                        readAt: readAt.toISOString()
+                    };
+
+                    io.to(`conv_${convId}`).emit('conversation_read', payload);
+
+                    const conv = await prisma.directConversation.findUnique({
+                        where: { id: convId },
+                        include: { participants: true }
+                    });
+                    conv?.participants.forEach(p => {
+                        if (p.userId !== user.id) {
+                            io.to(`user_${p.userId}`).emit('conversation_read', payload);
+                        }
                     });
                 }
             } catch (err) {
@@ -479,9 +514,10 @@ export const initSocket = (httpServer: HttpServer) => {
                     userName: user.name,
                 });
 
-                // Check remaining active sockets in this room
+                // Check remaining active sockets in this room.
+                // Only complete the call when all members have left (0 sockets remaining), allowing users to rejoin while others are still on the call.
                 const roomSockets = await io.in(`call_room_${data.callId}`).fetchSockets();
-                if (roomSockets.length <= 1) {
+                if (roomSockets.length === 0) {
                     await prisma.callRecord.update({
                         where: { id: data.callId },
                         data: { status: 'COMPLETED', endedAt: new Date() }
