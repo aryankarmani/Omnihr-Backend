@@ -766,38 +766,37 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
             }
         });
 
-        // Update conversation's updatedAt
-        if (conversationId) {
-            await prisma.directConversation.update({
-                where: { id: Number(conversationId) },
-                data: { updatedAt: new Date() }
-            });
-        }
-
-        // Real-time broadcast via Socket.IO
-        try {
-            const io = getIO();
-            if (channelId) {
-                io.to(`channel_${channelId}`).emit('new_message', message);
-            } else if (conversationId) {
-                io.to(`conv_${conversationId}`).emit('new_message', message);
-                // Also notify conversation participants directly in user room
-                const conv = await prisma.directConversation.findUnique({
-                    where: { id: Number(conversationId) },
-                    include: { participants: true }
-                });
-                conv?.participants.forEach(p => {
-                    if (p.userId !== userId) {
-                        io.to(`user_${p.userId}`).emit('new_conversation_message', {
-                            conversationId,
-                            message
-                        });
-                    }
-                });
-            }
-        } catch (_) {}
-
+        // Immediate HTTP response to ensure ultra-low latency
         res.status(201).json(message);
+
+        // Async non-blocking background broadcast & conversation update
+        (async () => {
+            try {
+                const io = getIO();
+                if (conversationId) {
+                    // Update updatedAt and retrieve participants in a single query
+                    const conv = await prisma.directConversation.update({
+                        where: { id: Number(conversationId) },
+                        data: { updatedAt: new Date() },
+                        include: { participants: true }
+                    }).catch(() => null);
+
+                    io.to(`conv_${conversationId}`).emit('new_message', message);
+                    conv?.participants.forEach((p) => {
+                        if (p.userId !== userId) {
+                            io.to(`user_${p.userId}`).emit('new_conversation_message', {
+                                conversationId,
+                                message
+                            });
+                        }
+                    });
+                } else if (channelId) {
+                    io.to(`channel_${channelId}`).emit('new_message', message);
+                }
+            } catch (broadcastErr) {
+                console.error('[Broadcast error]', broadcastErr);
+            }
+        })();
     } catch (err: any) {
         console.error('[Send message error]', err);
         res.status(500).json({ message: 'Failed to send message', error: err.message });

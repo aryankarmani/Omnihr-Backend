@@ -54,8 +54,16 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   next();
 });
 
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
-app.use('/uploads', express.static(path.join(process.cwd(), "uploads")));
+const staticOptions = {
+  setHeaders: (res: any, filePath: string) => {
+    if (filePath.endsWith('.jfif') || filePath.endsWith('.jpeg') || filePath.endsWith('.jpg')) {
+      res.setHeader('Content-Type', 'image/jpeg');
+    }
+  }
+};
+
+app.use('/uploads', express.static(path.join(__dirname, '../uploads'), staticOptions));
+app.use('/uploads', express.static(path.join(process.cwd(), "uploads"), staticOptions));
 
 // Fallback: If an upload is not present on the local machine (e.g. uploaded in cloud deployment),
 // transparently redirect to Render backend so avatars and attachments load seamlessly.

@@ -515,6 +515,7 @@ export const getEmployeeOverview = async (req: Request, res: Response) => {
                 email: emp.user.email,
                 role: emp.title || 'Employee',
                 department: emp.department,
+                avatar: emp.avatar || null,
                 status: emp.status || 'Active',
                 todayStatus,
                 todayStatusType,
