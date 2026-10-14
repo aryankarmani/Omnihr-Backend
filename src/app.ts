@@ -57,6 +57,13 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 app.use('/uploads', express.static(path.join(process.cwd(), "uploads")));
 
+// Fallback: If an upload is not present on the local machine (e.g. uploaded in cloud deployment),
+// transparently redirect to Render backend so avatars and attachments load seamlessly.
+app.get('/uploads/:filename', (req, res) => {
+  const filename = req.params.filename;
+  return res.redirect(`https://omnihr-backend-19fx.onrender.com/uploads/${encodeURIComponent(filename)}`);
+});
+
 app.set('etag', false);
 
 app.use((req, res, next) => {

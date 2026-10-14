@@ -344,6 +344,29 @@ export const getAllEmployees = async (req: Request, res: Response) => {
             }
         }
 
+        if (req.query.light === 'true' || req.query.simple === 'true') {
+            const lightEmployees = await prisma.user.findMany({
+                where: whereClause,
+                select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                    role: { select: { id: true, name: true } },
+                    employeeProfile: {
+                        select: {
+                            id: true,
+                            avatar: true,
+                            title: true,
+                            department: true,
+                            status: true,
+                        }
+                    }
+                },
+                orderBy: { name: 'asc' }
+            });
+            return res.json(lightEmployees);
+        }
+
         const employees = await prisma.user.findMany({
             where: whereClause,
             include: employeeInclude,

@@ -30,10 +30,10 @@ router.get('/stats', getAttendanceStats);
 router.post('/regularize', requirePermission('ATTENDANCE_REGULARIZE'), applyRegularization);
 router.get('/regularize/my-requests', getMyRegularizationRequests);
 
-// UPDATED: Admin regularization routes
-router.get('/regularize/pending', requirePermission(['ATTENDANCE_APPROVE', 'ATTENDANCE_REJECT']), getPendingRegularizations);
-router.put('/regularize/:id/approve', requirePermission('ATTENDANCE_APPROVE'), approveRegularization);
-router.put('/regularize/:id/reject', requirePermission('ATTENDANCE_REJECT'), rejectRegularization);
+// UPDATED: Admin & Manager regularization routes
+router.get('/regularize/pending', getPendingRegularizations);
+router.put('/regularize/:id/approve', approveRegularization);
+router.put('/regularize/:id/reject', rejectRegularization);
 
 // UPDATED: Admin direct override / force regularize
 router.post('/regularize/bypass', requirePermission('EMPLOYEE_ATTENDANCE_MANAGE'), forceRegularizeAttendance);

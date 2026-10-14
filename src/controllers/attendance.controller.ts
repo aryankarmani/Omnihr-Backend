@@ -80,7 +80,7 @@ const canAccessEmployeeRegularization = async (
         return true;
     }
 
-    const hasApprovePerm = await checkUserHasPermission(loggedInUser.id, ['ATTENDANCE_APPROVE', 'ATTENDANCE_REJECT']);
+    const hasApprovePerm = await checkUserHasPermission(loggedInUser.id, ['ATTENDANCE_APPROVE', 'ATTENDANCE_REJECT', 'EMPLOYEE_ATTENDANCE_MANAGE']);
     if (hasApprovePerm) {
         return true;
     }
@@ -233,20 +233,37 @@ const calculateRegularizedStatus = (
     outTime?: Date | null,
     shift?: ShiftInfo | null
 ) => {
-    if (!inTime || !outTime) return { status: 'Absent', hours: 0 };
+    if (!inTime && !outTime) return { status: 'Absent', hours: 0 };
 
-    const hours = (outTime.getTime() - inTime.getTime()) / (1000 * 60 * 60);
+    if (inTime && !outTime) {
+        let status = 'Present';
+        if (shift && isPunchInLate(inTime, shift)) {
+            status = 'Late';
+        } else if (!shift) {
+            const { hour: punchInHour, minute: punchInMinute } = getISTTimeParts(inTime);
+            if (punchInHour > 9 || (punchInHour === 9 && punchInMinute > 30)) {
+                status = 'Late';
+            }
+        }
+        return { status, hours: 0 };
+    }
+
+    if (!inTime && outTime) {
+        return { status: 'Present', hours: 0 };
+    }
+
+    const hours = (outTime!.getTime() - inTime!.getTime()) / (1000 * 60 * 60);
 
     let status = 'Present';
 
     if (hours < 4) {
         status = 'Half Day';
     } else if (shift) {
-        if (isPunchInLate(inTime, shift)) {
+        if (isPunchInLate(inTime!, shift)) {
             status = 'Late';
         }
     } else {
-        const { hour: punchInHour, minute: punchInMinute } = getISTTimeParts(inTime);
+        const { hour: punchInHour, minute: punchInMinute } = getISTTimeParts(inTime!);
         if (punchInHour > 9 || (punchInHour === 9 && punchInMinute > 30)) {
             status = 'Late';
         }
@@ -1024,15 +1041,17 @@ export const applyRegularization = async (req: AuthRequest, res: Response) => {
 
         const isBreakIn = correctionType === 'BREAK_IN' || reason.includes('Break In');
         const isBreakOut = correctionType === 'BREAK_OUT' || reason.includes('Break Out');
-        const derivedType = isBreakIn ? 'BREAK_IN' : isBreakOut ? 'BREAK_OUT' : (correctionType || 'PUNCH');
+        const isPunchIn = correctionType === 'PUNCH_IN' || reason === 'Forgot to Punch In';
+        const isPunchOut = correctionType === 'PUNCH_OUT' || reason === 'Forgot to Punch Out';
+        const derivedType = isBreakIn ? 'BREAK_IN' : isBreakOut ? 'BREAK_OUT' : isPunchIn ? 'PUNCH_IN' : isPunchOut ? 'PUNCH_OUT' : (correctionType || 'PUNCH');
 
-        const finalInTime = proposedIn
-            ? new Date(proposedIn)
-            : parseTime(date, inTime);
+        const finalInTime = isPunchOut
+            ? null
+            : (proposedIn ? new Date(proposedIn) : parseTime(date, inTime));
 
-        const finalOutTime = proposedOut
-            ? new Date(proposedOut)
-            : parseTime(date, outTime);
+        const finalOutTime = isPunchIn
+            ? null
+            : (proposedOut ? new Date(proposedOut) : parseTime(date, outTime));
 
         const finalBreakStart = proposedBreakStart
             ? new Date(proposedBreakStart)
@@ -1229,15 +1248,13 @@ export const getPendingRegularizations = async (req: AuthRequest, res: Response)
 
         // HR admin and users with ATTENDANCE_APPROVE see all, manager sees only own team
         const isSuperAdmin = (req.user as any)?.role === 'SUPER_ADMIN';
-        const hasFullAccess = isAdmin(req.user) || isSuperAdmin || await checkUserHasPermission(userId, ['ATTENDANCE_APPROVE', 'ATTENDANCE_REJECT']);
+        const hasFullAccess = isAdmin(req.user) || isSuperAdmin || await checkUserHasPermission(userId, ['ATTENDANCE_APPROVE', 'ATTENDANCE_REJECT', 'EMPLOYEE_ATTENDANCE_MANAGE']);
 
         if (!hasFullAccess) {
             const memberIds = await getManagerTeamMemberIds(tenantId, userId);
 
             if (memberIds.length === 0) {
-                return res.status(403).json({
-                    message: "Only admin or team manager can view pending correction requests",
-                });
+                return res.json([]);
             }
 
             whereClause.userId = {
