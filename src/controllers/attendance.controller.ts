@@ -560,6 +560,7 @@ export const punchToggle = async (req: AuthRequest, res: Response) => {
     try {
         const userId = req.user.id;
         const tenantId = req.user.tenantId;
+        const requestedAction = req.body?.action; // 'PUNCH_IN' | 'PUNCH_OUT'
         const now = new Date();
         const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(now);
 
@@ -611,6 +612,11 @@ export const punchToggle = async (req: AuthRequest, res: Response) => {
         });
 
         if (!record || !record.inTime) {
+            // Guard: Cannot punch out if not yet punched in
+            if (requestedAction === 'PUNCH_OUT') {
+                return res.status(400).json({ message: "You are not punched in yet." });
+            }
+
             // Check shift punch-in window: Only allowed starting 1 hour before shift
             const punchCheck = isPunchInAllowed(now, shift);
             if (!punchCheck.allowed) {
@@ -675,6 +681,20 @@ export const punchToggle = async (req: AuthRequest, res: Response) => {
 
             return res.json({ message: 'Punched in successfully', record, shift });
         } if (record.inTime && !record.outTime) {
+            // Guard: Cannot punch in if already punched in
+            if (requestedAction === 'PUNCH_IN') {
+                return res.status(400).json({ message: "You are already punched in for today." });
+            }
+
+            // Guard against accidental double-clicks or instant punch-outs (minimum 15 seconds)
+            const inTime = new Date(record.inTime);
+            const secondsSinceIn = (now.getTime() - inTime.getTime()) / 1000;
+            if (secondsSinceIn < 15) {
+                return res.status(400).json({
+                    message: "Cannot punch out immediately after punching in. Please wait a moment."
+                });
+            }
+
             // Punch Out
             // If user is currently on break, auto-close the active break at punch out time
             const openBreak = await (prisma as any).attendanceBreak.findFirst({
@@ -701,7 +721,6 @@ export const punchToggle = async (req: AuthRequest, res: Response) => {
             });
             const totalBreakMinutes = allBreaks.reduce((sum: number, b: any) => sum + (b.duration || 0), 0);
 
-            const inTime = new Date(record.inTime);
             const grossHours = (now.getTime() - inTime.getTime()) / (1000 * 60 * 60);
             const netHours = Math.max(0, grossHours - (totalBreakMinutes / 60));
 
