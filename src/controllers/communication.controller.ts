@@ -782,20 +782,40 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
                     }).catch(() => null);
 
                     io.to(`conv_${conversationId}`).emit('new_message', message);
-                    conv?.participants.forEach((p) => {
+                    conv?.participants.forEach(async (p) => {
                         if (p.userId !== userId) {
+                            const notifTitle = conv?.isGroup
+                                ? `${message.sender?.name || 'Someone'} in ${conv.title || 'Group'}`
+                                : (message.sender?.name || 'Someone');
+                            const notifBody = message.content || (message.attachments?.length ? 'Sent an attachment' : 'New message');
+                            const link = `/chat?conv=${conversationId}`;
+
+                            const notifRecord = await prisma.notification.create({
+                                data: {
+                                    tenantId,
+                                    userId: p.userId,
+                                    title: notifTitle,
+                                    message: notifBody,
+                                    type: 'chat',
+                                    link,
+                                    unread: true,
+                                }
+                            }).catch(() => null);
+
                             io.to(`user_${p.userId}`).emit('new_conversation_message', {
                                 conversationId,
                                 message
                             });
                             io.to(`user_${p.userId}`).emit('chat_notification', {
+                                id: notifRecord?.id || `msg-${Date.now()}`,
                                 type: 'chat',
                                 senderId: userId,
                                 senderName: message.sender?.name || 'Someone',
                                 senderAvatar: message.sender?.employeeProfile?.avatar || null,
                                 conversationId,
-                                content: message.content || (message.attachments?.length ? 'Sent an attachment' : 'New message'),
-                                link: `/chat?conv=${conversationId}`,
+                                title: notifTitle,
+                                content: notifBody,
+                                link,
                                 createdAt: message.createdAt,
                                 unread: true,
                             });
@@ -809,17 +829,35 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
                         include: { members: true }
                     }).catch(() => null);
 
-                    channel?.members.forEach((m) => {
+                    channel?.members.forEach(async (m) => {
                         if (m.userId !== userId) {
+                            const notifTitle = `${message.sender?.name || 'Someone'} in #${channel?.name || 'channel'}`;
+                            const notifBody = message.content || (message.attachments?.length ? 'Sent an attachment' : 'New message');
+                            const link = `/chat?channel=${channelId}`;
+
+                            const notifRecord = await prisma.notification.create({
+                                data: {
+                                    tenantId,
+                                    userId: m.userId,
+                                    title: notifTitle,
+                                    message: notifBody,
+                                    type: 'chat',
+                                    link,
+                                    unread: true,
+                                }
+                            }).catch(() => null);
+
                             io.to(`user_${m.userId}`).emit('chat_notification', {
+                                id: notifRecord?.id || `chan-${Date.now()}`,
                                 type: 'channel',
                                 channelId,
-                                channelName: channel.name,
+                                channelName: channel?.name,
                                 senderId: userId,
                                 senderName: message.sender?.name || 'Someone',
                                 senderAvatar: message.sender?.employeeProfile?.avatar || null,
-                                content: message.content || (message.attachments?.length ? 'Sent an attachment' : 'New message'),
-                                link: `/chat?channel=${channelId}`,
+                                title: notifTitle,
+                                content: notifBody,
+                                link,
                                 createdAt: message.createdAt,
                                 unread: true,
                             });

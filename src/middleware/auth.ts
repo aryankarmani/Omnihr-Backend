@@ -182,4 +182,48 @@ export const requirePermission = (permissionCode: string | string[]) => {
       return res.status(500).json({ message: "Internal authorization error" });
     }
   };
+};
+
+export const requireProfessionalPlan = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const tenantId = req.user?.tenantId;
+    if (!tenantId) return next();
+
+    const role = String(req.user?.role || "").toUpperCase();
+    if (role === "SUPER_ADMIN") return next();
+
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      include: {
+        subscriptions: {
+          where: { status: { in: ["ACTIVE", "EXPIRING_SOON"] } },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          include: { plan: true },
+        },
+      },
+    });
+
+    const activeSubPlan = tenant?.subscriptions[0]?.plan?.name;
+    const planName = String(activeSubPlan || tenant?.plan || "Growth").toUpperCase();
+
+    // Professional, Growth, and Enterprise plans grant chat access
+    const isPro = planName.includes("GROWTH") || planName.includes("PRO") || planName.includes("ENTERPRISE");
+
+    if (!isPro) {
+      return res.status(403).json({
+        code: "PLAN_UPGRADE_REQUIRED",
+        message: "OmniHR Chat, Voice/Video Calling, and Windows Desktop Alerts are exclusive to the Professional Plan. Please upgrade to unlock this feature.",
+      });
+    }
+
+    next();
+  } catch (err) {
+    console.error("[requireProfessionalPlan error]", err);
+    next();
+  }
 };
