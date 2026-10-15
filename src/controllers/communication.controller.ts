@@ -788,10 +788,43 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
                                 conversationId,
                                 message
                             });
+                            io.to(`user_${p.userId}`).emit('chat_notification', {
+                                type: 'chat',
+                                senderId: userId,
+                                senderName: message.sender?.name || 'Someone',
+                                senderAvatar: message.sender?.employeeProfile?.avatar || null,
+                                conversationId,
+                                content: message.content || (message.attachments?.length ? 'Sent an attachment' : 'New message'),
+                                link: `/chat?conv=${conversationId}`,
+                                createdAt: message.createdAt,
+                                unread: true,
+                            });
                         }
                     });
                 } else if (channelId) {
                     io.to(`channel_${channelId}`).emit('new_message', message);
+
+                    const channel = await prisma.commChannel.findUnique({
+                        where: { id: Number(channelId) },
+                        include: { members: true }
+                    }).catch(() => null);
+
+                    channel?.members.forEach((m) => {
+                        if (m.userId !== userId) {
+                            io.to(`user_${m.userId}`).emit('chat_notification', {
+                                type: 'channel',
+                                channelId,
+                                channelName: channel.name,
+                                senderId: userId,
+                                senderName: message.sender?.name || 'Someone',
+                                senderAvatar: message.sender?.employeeProfile?.avatar || null,
+                                content: message.content || (message.attachments?.length ? 'Sent an attachment' : 'New message'),
+                                link: `/chat?channel=${channelId}`,
+                                createdAt: message.createdAt,
+                                unread: true,
+                            });
+                        }
+                    });
                 }
             } catch (broadcastErr) {
                 console.error('[Broadcast error]', broadcastErr);
