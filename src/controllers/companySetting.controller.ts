@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
 import fs from "fs";
 import path from "path";
+import { uploadToCloudinary, deleteFromCloudinary } from "../services/cloudinary.service";
 
 const prisma = new PrismaClient();
 
@@ -77,12 +78,20 @@ export const uploadAuthorizedSignature = async (req: Request, res: Response) => 
       where: { tenantId },
     });
 
-    const newFileName = req.file?.filename || oldSetting?.authorizedSignImage || null;
+    let newFileName = oldSetting?.authorizedSignImage || null;
+    if (req.file) {
+      try {
+        const cloudRes = await uploadToCloudinary(req.file.path, 'omnihr/signatures');
+        newFileName = cloudRes.secure_url;
+      } catch (err) {
+        console.error("Cloudinary signature upload failed, falling back to local file:", err);
+        newFileName = req.file.filename;
+      }
+    }
 
     if (!newFileName) {
       return res.status(400).json({ message: "Signature image is required" });
     }
-
 
     const setting = await prisma.companySetting.upsert({
       where: { tenantId },
@@ -99,21 +108,23 @@ export const uploadAuthorizedSignature = async (req: Request, res: Response) => 
       },
     });
 
-     // Delete old file only when new file is uploaded.
+    // Delete old file only when new file is uploaded
     if (
       req.file &&
       oldSetting?.authorizedSignImage &&
-      oldSetting.authorizedSignImage !== req.file.filename
-    )  {
-      const oldFilePath = path.join(
-        process.cwd(),
-        "uploads",
-        
-        oldSetting.authorizedSignImage
-      );
-
-      if (fs.existsSync(oldFilePath)) {
-        fs.unlinkSync(oldFilePath);
+      oldSetting.authorizedSignImage !== newFileName
+    ) {
+      if (oldSetting.authorizedSignImage.includes('cloudinary.com')) {
+        await deleteFromCloudinary(oldSetting.authorizedSignImage);
+      } else {
+        const oldFilePath = path.join(
+          process.cwd(),
+          "uploads",
+          oldSetting.authorizedSignImage.replace(/^\/?uploads\//, "")
+        );
+        if (fs.existsSync(oldFilePath)) {
+          fs.unlinkSync(oldFilePath);
+        }
       }
     }
 

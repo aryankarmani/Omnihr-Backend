@@ -3,6 +3,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { authenticate, requirePermission } from '../middleware/auth';
+import { uploadToCloudinary } from '../services/cloudinary.service';
 import {
     getCommunicationBootstrap,
     createChannel,
@@ -119,13 +120,21 @@ router.post('/upload', (req: any, res: any) => {
         if (!req.file) {
             return res.status(400).json({ message: 'No file uploaded' });
         }
-        const fileUrl = `/uploads/chat/${req.file.filename}`;
-        return res.json({
-            fileName: req.file.originalname,
-            fileUrl,
-            fileType: req.file.mimetype,
-            fileSize: req.file.size
-        });
+        (async () => {
+            let fileUrl = `/uploads/chat/${req.file.filename}`;
+            try {
+                const cloudRes = await uploadToCloudinary(req.file.path, 'omnihr/chat');
+                fileUrl = cloudRes.secure_url;
+            } catch (cloudErr) {
+                console.error("Cloudinary chat upload failed, falling back to local file:", cloudErr);
+            }
+            return res.json({
+                fileName: req.file.originalname,
+                fileUrl,
+                fileType: req.file.mimetype,
+                fileSize: req.file.size
+            });
+        })();
     });
 });
 
