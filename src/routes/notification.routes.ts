@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authenticate } from '../middleware/auth';
 import {
   getNotifications,
+  getUnreadCount,
   markNotificationRead,
   markAllNotificationsRead,
   deleteBulkNotifications,
@@ -12,6 +13,7 @@ const router = Router();
 router.use(authenticate);
 
 router.get('/', getNotifications);
+router.get('/unread-count', getUnreadCount);
 router.patch('/:id/read', markNotificationRead);
 router.post('/read-all', markAllNotificationsRead);
 router.post('/delete-bulk', deleteBulkNotifications);
