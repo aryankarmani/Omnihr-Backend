@@ -2,7 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { authenticate, requirePermission } from '../middleware/auth';
+import { authenticate, requirePermission, requireProfessionalPlan } from '../middleware/auth';
 import { uploadToCloudinary } from '../services/cloudinary.service';
 import {
     getCommunicationBootstrap,
@@ -73,6 +73,7 @@ const upload = multer({
 });
 
 router.use(authenticate);
+router.use(requireProfessionalPlan);
 
 // Bootstrap data
 router.get('/bootstrap', requirePermission('CHAT_VIEW'), getCommunicationBootstrap);

@@ -208,6 +208,9 @@ export const login = async (req: Request, res: Response) => {
         });
       }
 
+      let rawPlanName = "Enterprise";
+      let isProfessional = true;
+
       // Check tenant status and subscription
       if (user.tenant) {
         if (!user.tenant.isActive) {
@@ -217,11 +220,13 @@ export const login = async (req: Request, res: Response) => {
           });
         }
 
-        const latestSub = await prisma.subscription.findFirst({
-          where: { tenantId: user.tenantId },
-          orderBy: { createdAt: "desc" },
-          select: { status: true },
-        });
+        const latestSub = user.tenantId
+          ? await prisma.subscription.findFirst({
+              where: { tenantId: user.tenantId },
+              orderBy: { createdAt: "desc" },
+              include: { plan: true },
+            })
+          : null;
 
         if (latestSub && latestSub.status === "SUSPENDED") {
           return res.status(403).json({
@@ -229,6 +234,9 @@ export const login = async (req: Request, res: Response) => {
             message: "Your company subscription is currently suspended by the platform administrator. Please contact support to reactivate.",
           });
         }
+
+        rawPlanName = latestSub?.plan?.name || user.tenant?.plan || "Growth";
+        isProfessional = ["GROWTH", "PROFESSIONAL", "ENTERPRISE"].includes(rawPlanName.toUpperCase());
       }
 
       const token = createAccessToken(user);
@@ -245,6 +253,8 @@ export const login = async (req: Request, res: Response) => {
           role: (user.role?.name || "EMPLOYEE").toUpperCase(),
           tenantId: user.tenantId,
           tenantName: user.tenant?.name,
+          plan: rawPlanName,
+          hasChatAccess: isProfessional,
           accessibleModules: user.role?.accessibleModules
             ? user.role.accessibleModules.split(",")
             : [],
@@ -684,6 +694,19 @@ export const getMe = async (req: any, res: Response) => {
       return res.status(404).json({ message: "User not found" });
     }
 
+    let rawPlanName = "Enterprise";
+    let isProfessional = true;
+
+    if (user.tenantId) {
+      const latestSub = await prisma.subscription.findFirst({
+        where: { tenantId: user.tenantId },
+        orderBy: { createdAt: "desc" },
+        include: { plan: true },
+      });
+      rawPlanName = latestSub?.plan?.name || user.tenant?.plan || "Growth";
+      isProfessional = ["GROWTH", "PROFESSIONAL", "ENTERPRISE"].includes(rawPlanName.toUpperCase());
+    }
+
     return res.json({
       user: {
         id: user.id,
@@ -692,6 +715,8 @@ export const getMe = async (req: any, res: Response) => {
         role: (user.role?.name || "EMPLOYEE").toUpperCase(),
         tenantId: user.tenantId,
         tenantName: user.tenant?.name,
+        plan: rawPlanName,
+        hasChatAccess: isProfessional,
         accessibleModules: user.role?.accessibleModules
           ? user.role.accessibleModules.split(",")
           : [],
