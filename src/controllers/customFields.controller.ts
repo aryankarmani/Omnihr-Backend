@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { checkUserHasPermission } from '../middleware/auth';
+import { uploadToCloudinary, deleteFromCloudinary } from '../services/cloudinary.service';
 
 const prisma = new PrismaClient();
 
@@ -241,10 +242,28 @@ export const uploadCustomFieldDocument = async (req: Request, res: Response) => 
 
         const customFieldsMap = profile.customFields ? JSON.parse(profile.customFields) : {};
 
+        // If replacing an old Cloudinary document, clean it up
+        if (customFieldsMap[fieldId]?.documentUrl) {
+            const oldUrl = customFieldsMap[fieldId].documentUrl;
+            if (oldUrl && oldUrl.includes('cloudinary.com')) {
+                await deleteFromCloudinary(oldUrl);
+            }
+        }
+
         if (!customFieldsMap[fieldId]) {
             customFieldsMap[fieldId] = {};
         }
-        customFieldsMap[fieldId].documentUrl = file.filename;
+
+        let docUrl: string = file.filename;
+        try {
+            const cloudRes = await uploadToCloudinary(file.path, 'omnihr/custom_fields');
+            docUrl = cloudRes.secure_url;
+        } catch (cloudErr) {
+            console.error("Cloudinary custom field upload failed, falling back to local file:", cloudErr);
+            docUrl = file.filename;
+        }
+
+        customFieldsMap[fieldId].documentUrl = docUrl;
         customFieldsMap[fieldId].documentName = file.originalname;
 
         await prisma.employeeProfile.update({
@@ -262,7 +281,7 @@ export const uploadCustomFieldDocument = async (req: Request, res: Response) => 
             id: `${profile.id}-${fieldId}`,
             fieldId,
             employeeProfileId: profile.id,
-            documentUrl: file.filename,
+            documentUrl: docUrl,
             documentName: file.originalname,
             tenantId,
             field
@@ -294,6 +313,10 @@ export const deleteCustomFieldDocument = async (req: Request, res: Response) => 
         const customFieldsMap = profile.customFields ? JSON.parse(profile.customFields) : {};
 
         if (customFieldsMap[fieldId]) {
+            const oldUrl = customFieldsMap[fieldId].documentUrl;
+            if (oldUrl && oldUrl.includes('cloudinary.com')) {
+                await deleteFromCloudinary(oldUrl);
+            }
             customFieldsMap[fieldId].documentUrl = null;
             customFieldsMap[fieldId].documentName = null;
         }

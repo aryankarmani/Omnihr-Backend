@@ -10,6 +10,7 @@ import fs from 'fs';
 import path from 'path';
 import { calculateProfileCompletion } from '../utils/profileCompletion';
 import { checkUserHasPermission } from '../middleware/auth';
+import { uploadToCloudinary, deleteFromCloudinary } from '../services/cloudinary.service';
 
 
 const prisma = new PrismaClient();
@@ -417,9 +418,16 @@ export const createEmployee = async (req: Request, res: Response) => {
             (file) => file.fieldname === "profilePhoto" || file.fieldname === "profilePicture"
         );
 
-        const profilePhotoPath = profilePhotoFile
-            ? `/uploads/${profilePhotoFile.filename}`
-            : null;
+        let profilePhotoPath: string | null = null;
+        if (profilePhotoFile) {
+            try {
+                const cloudRes = await uploadToCloudinary(profilePhotoFile.path, 'omnihr/profile_pictures');
+                profilePhotoPath = cloudRes.secure_url;
+            } catch (err) {
+                console.error("Cloudinary createEmployee profile photo upload failed:", err);
+                profilePhotoPath = `/uploads/${profilePhotoFile.filename}`;
+            }
+        }
 
         const {
             name, email, password, phone, role, roleId,
@@ -682,21 +690,30 @@ export const createEmployee = async (req: Request, res: Response) => {
 
             if (cfMasters.length > 0) {
                 const customFieldsMap: Record<string, any> = {};
-                cfMasters.forEach((cf) => {
+                for (const cf of cfMasters) {
                     const value = customFieldValues[cf.id] !== undefined ? String(customFieldValues[cf.id]) : null;
 
                     // Check if there is an uploaded file for this custom field
                     const fileArr = files[`custom-file-${cf.id}`];
                     const file = fileArr && fileArr[0];
-                    const docUrl = file ? file.filename : null;
+                    let docUrl: string | null = null;
                     const docName = file ? file.originalname : null;
+
+                    if (file) {
+                        try {
+                            const cloudRes = await uploadToCloudinary(file.path, 'omnihr/custom_fields');
+                            docUrl = cloudRes.secure_url;
+                        } catch (err) {
+                            docUrl = file.filename;
+                        }
+                    }
 
                     customFieldsMap[cf.id] = {
                         value,
                         documentUrl: docUrl,
                         documentName: docName
                     };
-                });
+                }
 
                 await tx.employeeProfile.update({
                     where: { id: profile.id },
@@ -713,11 +730,18 @@ export const createEmployee = async (req: Request, res: Response) => {
                     const fileArr = files[fieldName];
                     if (fileArr && fileArr[0]) {
                         const file = fileArr[0];
+                        let docUrl = file.filename;
+                        try {
+                            const cloudRes = await uploadToCloudinary(file.path, 'omnihr/documents');
+                            docUrl = cloudRes.secure_url;
+                        } catch (err) {
+                            console.error('Cloudinary document upload failed in createEmployee:', err);
+                        }
                         docPromises.push(tx.document.create({
                             data: {
                                 profileId: profile.id,
                                 name: fieldName === 'aadhaar' ? 'Aadhaar Card' : fieldName === 'pan' ? 'PAN Card' : 'Highest Qualification Degree',
-                                url: file.filename,
+                                url: docUrl,
                                 type: file.mimetype,
                                 originalName: file.originalname
                             }
@@ -1355,16 +1379,36 @@ export const addDocument = async (req: Request, res: Response) => {
         });
 
         if (existingDoc) {
+            if (existingDoc.url) {
+                if (existingDoc.url.includes('cloudinary.com')) {
+                    await deleteFromCloudinary(existingDoc.url);
+                } else {
+                    const cleanName = existingDoc.url.replace(/^(\/)?uploads\//, '');
+                    const oldFilePath = path.join(process.cwd(), 'uploads', cleanName);
+                    if (fs.existsSync(oldFilePath)) {
+                        try { fs.unlinkSync(oldFilePath); } catch (e) {}
+                    }
+                }
+            }
             await prisma.document.delete({
                 where: { id: existingDoc.id },
             });
+        }
+
+        let docUrl: string = file.filename;
+        try {
+            const cloudRes = await uploadToCloudinary(file.path, 'omnihr/documents');
+            docUrl = cloudRes.secure_url;
+        } catch (cloudErr) {
+            console.error("Cloudinary document upload failed, falling back to local file:", cloudErr);
+            docUrl = file.filename;
         }
 
         const doc = await prisma.document.create({
             data: {
                 profileId: profile.id,
                 name,
-                url: file.filename,
+                url: docUrl,
                 type,
                 originalName: file.originalname,
             },
@@ -1577,15 +1621,19 @@ export const deleteDocument = async (req: Request, res: Response) => {
             });
         }
 
-        // Delete physical file from disk if present
+        // Delete physical file or Cloudinary resource if present
         if (document.url) {
-            const cleanName = document.url.replace(/^(\/)?uploads\//, '');
-            const filePath = path.join(process.cwd(), 'uploads', cleanName);
-            if (fs.existsSync(filePath)) {
-                try {
-                    fs.unlinkSync(filePath);
-                } catch (err) {
-                    console.error("File unlink error:", err);
+            if (document.url.includes('cloudinary.com')) {
+                await deleteFromCloudinary(document.url);
+            } else {
+                const cleanName = document.url.replace(/^(\/)?uploads\//, '');
+                const filePath = path.join(process.cwd(), 'uploads', cleanName);
+                if (fs.existsSync(filePath)) {
+                    try {
+                        fs.unlinkSync(filePath);
+                    } catch (err) {
+                        console.error("File unlink error:", err);
+                    }
                 }
             }
         }
@@ -1699,20 +1747,31 @@ export const updateProfilePicture = async (req: Request, res: Response) => {
             return res.status(404).json({ message: "Employee profile not found" });
         }
 
-        // Delete old profile picture if it exists on disk and is a file path
-        if (profile.avatar && profile.avatar.startsWith('/uploads/')) {
-            const oldFilePath = path.join(process.cwd(), profile.avatar);
-            if (fs.existsSync(oldFilePath)) {
-                try {
-                    fs.unlinkSync(oldFilePath);
-                } catch (err) {
-                    console.error("Failed to delete old avatar file:", err);
+        // Delete old profile picture if it exists
+        if (profile.avatar) {
+            if (profile.avatar.includes('cloudinary.com')) {
+                await deleteFromCloudinary(profile.avatar);
+            } else if (profile.avatar.startsWith('/uploads/')) {
+                const oldFilePath = path.join(process.cwd(), profile.avatar);
+                if (fs.existsSync(oldFilePath)) {
+                    try {
+                        fs.unlinkSync(oldFilePath);
+                    } catch (err) {
+                        console.error("Failed to delete old avatar file:", err);
+                    }
                 }
             }
         }
 
-        // Save new profile picture path
-        const profilePhotoPath = `/uploads/${file.filename}`;
+        // Upload new profile picture to Cloudinary (fallback to local if Cloudinary fails)
+        let profilePhotoPath: string;
+        try {
+            const cloudRes = await uploadToCloudinary(file.path, 'omnihr/profile_pictures');
+            profilePhotoPath = cloudRes.secure_url;
+        } catch (cloudErr) {
+            console.error("Cloudinary upload failed, falling back to local file:", cloudErr);
+            profilePhotoPath = `/uploads/${file.filename}`;
+        }
 
         const updatedProfile = await prisma.employeeProfile.update({
             where: { id: profile.id },
@@ -1780,14 +1839,18 @@ export const deleteProfilePicture = async (req: Request, res: Response) => {
             return res.status(404).json({ message: "Employee profile not found" });
         }
 
-        // Delete old profile picture if it exists on disk
-        if (profile.avatar && profile.avatar.startsWith('/uploads/')) {
-            const oldFilePath = path.join(process.cwd(), profile.avatar);
-            if (fs.existsSync(oldFilePath)) {
-                try {
-                    fs.unlinkSync(oldFilePath);
-                } catch (err) {
-                    console.error("Failed to delete old avatar file:", err);
+        // Delete old profile picture
+        if (profile.avatar) {
+            if (profile.avatar.includes('cloudinary.com')) {
+                await deleteFromCloudinary(profile.avatar);
+            } else if (profile.avatar.startsWith('/uploads/')) {
+                const oldFilePath = path.join(process.cwd(), profile.avatar);
+                if (fs.existsSync(oldFilePath)) {
+                    try {
+                        fs.unlinkSync(oldFilePath);
+                    } catch (err) {
+                        console.error("Failed to delete old avatar file:", err);
+                    }
                 }
             }
         }

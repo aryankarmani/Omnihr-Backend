@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import { sendMail, employeeWelcomeTemplate, employeeCorrectionRequestTemplate } from '../utils/mail';
 import { notifyAdmins } from '../utils/notification';
 import { createAuditLog } from '../utils/auditLog';
+import { uploadToCloudinary } from '../services/cloudinary.service';
 
 const prisma = new PrismaClient();
 
@@ -697,7 +698,16 @@ export const submitOnboardingProfile = async (req: Request, res: Response) => {
         const profilePhotoFile = uploadedFiles?.find(
             (file) => file.fieldname === "profilePhoto" || file.fieldname === "profilePicture"
         );
-        const profilePhotoPath = profilePhotoFile ? `/uploads/${profilePhotoFile.filename}` : null;
+        let profilePhotoPath: string | null = null;
+        if (profilePhotoFile) {
+            try {
+                const cloudRes = await uploadToCloudinary(profilePhotoFile.path, 'omnihr/profile_pictures');
+                profilePhotoPath = cloudRes.secure_url;
+            } catch (err) {
+                console.error("Cloudinary onboarding avatar upload failed:", err);
+                profilePhotoPath = `/uploads/${profilePhotoFile.filename}`;
+            }
+        }
 
         // Custom fields map
         const cfMasters = await prisma.customField.findMany({
@@ -716,19 +726,28 @@ export const submitOnboardingProfile = async (req: Request, res: Response) => {
         };
 
         if (cfMasters.length > 0) {
-            cfMasters.forEach((cf: any) => {
+            for (const cf of cfMasters) {
                 const value = customFieldValues[cf.id] !== undefined ? String(customFieldValues[cf.id]) : null;
                 const fileArr = files[`custom-file-${cf.id}`];
                 const file = fileArr && fileArr[0];
-                const docUrl = file ? file.filename : null;
+                let docUrl: string | null = null;
                 const docName = file ? file.originalname : null;
+
+                if (file) {
+                    try {
+                        const cloudRes = await uploadToCloudinary(file.path, 'omnihr/custom_fields');
+                        docUrl = cloudRes.secure_url;
+                    } catch (err) {
+                        docUrl = file.filename;
+                    }
+                }
 
                 customFieldsMap[cf.id] = {
                     value,
                     documentUrl: docUrl,
                     documentName: docName
                 };
-            });
+            }
         }
 
         // Run full creation/update in transaction
@@ -883,11 +902,18 @@ export const submitOnboardingProfile = async (req: Request, res: Response) => {
                     const fileArr = files[fieldName];
                     if (fileArr && fileArr[0]) {
                         const file = fileArr[0];
+                        let docUrl = file.filename;
+                        try {
+                            const cloudRes = await uploadToCloudinary(file.path, 'omnihr/documents');
+                            docUrl = cloudRes.secure_url;
+                        } catch (err) {
+                            console.error('Cloudinary document upload failed:', err);
+                        }
                         await tx.document.create({
                             data: {
                                 profileId: profile.id,
                                 name: fieldName === 'aadhaar' ? 'Aadhaar Card' : fieldName === 'pan' ? 'PAN Card' : 'Highest Qualification Degree',
-                                url: file.filename,
+                                url: docUrl,
                                 type: file.mimetype,
                                 originalName: file.originalname
                             }
