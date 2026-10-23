@@ -161,7 +161,6 @@ export const login = async (req: Request, res: Response) => {
     const candidateUsers = await prisma.user.findMany({
       where: {
         email: email.toLowerCase().trim(),
-        isActive: true,
         deletedAt: null,
         ...(requestedTenantId ? { tenantId: String(requestedTenantId) } : {}),
       },
@@ -205,6 +204,12 @@ export const login = async (req: Request, res: Response) => {
       if (!isPasswordValid) {
         return res.status(401).json({
           message: "Incorrect password",
+        });
+      }
+
+      if (!user.isActive || user.employeeProfile?.isActive === false || user.employeeProfile?.status?.toLowerCase() === 'inactive') {
+        return res.status(403).json({
+          message: "Your account is deactivated. Please contact your administrator.",
         });
       }
 
