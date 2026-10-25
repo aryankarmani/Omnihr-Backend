@@ -40,7 +40,7 @@ export const createNotification = async ({
       message: notif.message,
       type: notif.type,
       unread: notif.unread,
-      link: notif.link,
+      link: (notif as any).link,
       createdAt: notif.createdAt,
       date: notif.createdAt.toISOString().split('T')[0],
       time: 'Just now',

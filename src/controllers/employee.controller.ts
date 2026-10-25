@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import 'multer';
 import { PrismaClient } from '@prisma/client';
 import { createNotification, notifyAdmins } from '../utils/notification';
 import { getManagerTeamMemberIds } from "../utils/teamScope";
