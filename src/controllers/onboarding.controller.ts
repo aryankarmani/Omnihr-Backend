@@ -71,7 +71,7 @@ export const sendSingleInviteInternal = async (tenantId: any, email: string, ori
         });
 
         if (!empRole) {
-            empRole = await prisma.role.findFirst({ where: { tenantId } });
+            throw new Error('Employee role is not configured under Access Control. Please configure the Employee role in Masters -> Access Control first.');
         }
 
         userRecord = await prisma.user.create({
@@ -470,10 +470,14 @@ export const getOnboardingData = async (req: Request, res: Response) => {
             })
         ]);
 
+        if (!employeeRole) {
+            return res.status(400).json({ message: 'Employee role has not been configured in Access Control. Please ask your administrator to configure the Employee role.' });
+        }
+
         const roles = [
             {
-                id: employeeRole?.id || 1,
-                name: 'Employee'
+                id: employeeRole.id,
+                name: employeeRole.name || 'Employee'
             }
         ];
 
@@ -651,6 +655,13 @@ export const submitOnboardingProfile = async (req: Request, res: Response) => {
             desigTitle = desig?.title || null;
         }
 
+        let validEmpRole = await prisma.role.findFirst({
+            where: { tenantId, name: { equals: 'EMPLOYEE', mode: 'insensitive' } }
+        });
+        if (!validEmpRole) {
+            return res.status(400).json({ message: 'Employee role is not configured in Access Control. Please contact your administrator.' });
+        }
+
         let user = await prisma.user.findFirst({
             where: { email, tenantId, deletedAt: null },
             include: { employeeProfile: true }
@@ -758,7 +769,7 @@ export const submitOnboardingProfile = async (req: Request, res: Response) => {
                     where: { id: user.id },
                     data: {
                         name: fullName,
-                        roleId: roleId ? Number(roleId) : user.roleId,
+                        roleId: validEmpRole.id,
                         isActive: false, // Inactive until admin approves
                     },
                     include: { employeeProfile: true }
@@ -769,7 +780,7 @@ export const submitOnboardingProfile = async (req: Request, res: Response) => {
                         email,
                         name: fullName,
                         tenantId,
-                        roleId: roleId ? Number(roleId) : undefined,
+                        roleId: validEmpRole.id,
                         isActive: false
                     },
                     include: { employeeProfile: true }
@@ -977,11 +988,15 @@ export const approveOnboarding = async (req: Request, res: Response) => {
         const loginUrl = getFrontendLoginUrl(req);
 
         // Activate user and set password
+        let empRoleToAssign = await prisma.role.findFirst({
+            where: { tenantId, name: { equals: 'EMPLOYEE', mode: 'insensitive' } }
+        });
         await prisma.user.update({
             where: { id: user.id },
             data: {
                 password: hashedPassword,
-                isActive: true
+                isActive: true,
+                ...(empRoleToAssign ? { roleId: empRoleToAssign.id } : {})
             }
         });
 
