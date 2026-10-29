@@ -211,10 +211,23 @@ export const verifyAndOnboard = async (req: Request, res: Response) => {
     const tempPassword = `OmniHR@${Math.random().toString(36).slice(-6).toUpperCase()}`;
     const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
-    // Fetch all existing system permissions to connect to this Admin Role
-    const allPermissions = await prisma.permission.findMany({
+    // Fetch all existing system permissions (or seed them if empty) to connect to this Admin Role
+    let allPermissions = await prisma.permission.findMany({
       select: { id: true, code: true },
     });
+    if (allPermissions.length === 0) {
+      const { STANDARD_PERMISSIONS } = require("./masters.controller");
+      for (const p of STANDARD_PERMISSIONS) {
+        await prisma.permission.upsert({
+          where: { code: p.code },
+          update: { name: p.name, module: p.module, description: p.description },
+          create: p,
+        });
+      }
+      allPermissions = await prisma.permission.findMany({
+        select: { id: true, code: true },
+      });
+    }
 
     // --- Step 8: Create everything in a single DB transaction ---
     const result = await prisma.$transaction(
@@ -347,3 +360,4 @@ export const verifyAndOnboard = async (req: Request, res: Response) => {
       .json({ message: "Onboarding failed.", error: error.message });
   }
 };
+
