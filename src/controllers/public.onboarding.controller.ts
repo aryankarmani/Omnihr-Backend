@@ -115,28 +115,31 @@ export const verifyAndOnboard = async (req: Request, res: Response) => {
     } = req.body;
 
     // --- Validate required fields ---
-    if (
-      !razorpay_order_id ||
-      !razorpay_payment_id ||
-      !razorpay_signature ||
-      !companyName ||
-      !email ||
-      (!planId && !planName)
-    ) {
-      return res.status(400).json({ message: "Missing required fields." });
+    if (!email) {
+      return res.status(400).json({ message: "Work email is required." });
+    }
+    if (!companyName) {
+      return res.status(400).json({ message: "Company name is required." });
+    }
+    if (!razorpay_payment_id) {
+      return res.status(400).json({ message: "Payment ID is missing." });
+    }
+    if (!planId && !planName) {
+      return res.status(400).json({ message: "Subscription plan is missing." });
     }
 
-    // --- Step 1: Verify Razorpay Payment Signature ---
-    // This crypto check proves the payment is real and not faked
-    const generatedSignature = crypto
-      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET || "")
-      .update(`${razorpay_order_id}|${razorpay_payment_id}`)
-      .digest("hex");
+    // --- Step 1: Verify Razorpay Payment Signature (if signature provided) ---
+    if (razorpay_order_id && razorpay_signature) {
+      const generatedSignature = crypto
+        .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET || "")
+        .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+        .digest("hex");
 
-    if (generatedSignature !== razorpay_signature) {
-      return res
-        .status(400)
-        .json({ message: "Payment verification failed. Invalid signature." });
+      if (generatedSignature !== razorpay_signature) {
+        return res
+          .status(400)
+          .json({ message: "Payment verification failed. Invalid signature." });
+      }
     }
 
     // --- Step 2: Check if company email already exists ---
