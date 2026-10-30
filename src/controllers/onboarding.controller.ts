@@ -8,6 +8,7 @@ import { sendMail, employeeWelcomeTemplate, employeeCorrectionRequestTemplate } 
 import { notifyAdmins } from '../utils/notification';
 import { createAuditLog } from '../utils/auditLog';
 import { uploadToCloudinary } from '../services/cloudinary.service';
+import { getIO } from '../socket/socketHandler';
 
 const prisma = new PrismaClient();
 
@@ -951,6 +952,13 @@ export const submitOnboardingProfile = async (req: Request, res: Response) => {
             console.error('Failed to notify admins of onboarding submission:', e);
         }
 
+        try {
+            getIO().to(`tenant_${tenantId}`).emit('onboarding_updated', {
+                action: 'SUBMITTED',
+                tenantId
+            });
+        } catch {}
+
         return res.json({
             success: true,
             message: 'Your profile details have been submitted successfully! Waiting for administrator approval.'
@@ -1073,6 +1081,17 @@ export const approveOnboarding = async (req: Request, res: Response) => {
         } catch (auditErr) {
             console.error('Audit log error on approveOnboarding:', auditErr);
         }
+
+        try {
+            getIO().to(`tenant_${tenantId}`).emit('onboarding_updated', {
+                action: 'APPROVED',
+                tenantId
+            });
+            getIO().to(`tenant_${tenantId}`).emit('employee_roster_updated', {
+                action: 'CREATED',
+                tenantId
+            });
+        } catch {}
 
         return res.json({
             success: true,
@@ -1204,6 +1223,13 @@ export const deleteOnboardingInvite = async (req: Request, res: Response) => {
         } catch (auditErr) {
             console.error('Audit log error on deleteOnboardingInvite:', auditErr);
         }
+
+        try {
+            getIO().to(`tenant_${tenantId}`).emit('onboarding_updated', {
+                action: 'DELETED',
+                tenantId
+            });
+        } catch {}
 
         return res.json({ success: true, message: 'Onboarding invite deleted successfully from database' });
     } catch (error: any) {
@@ -1395,6 +1421,13 @@ export const requestOnboardingChanges = async (req: Request, res: Response) => {
         } catch (mailError) {
             console.error('[Onboarding] Error sending correction email:', mailError);
         }
+
+        try {
+            getIO().to(`tenant_${tenantId}`).emit('onboarding_updated', {
+                action: 'CHANGES_REQUESTED',
+                tenantId
+            });
+        } catch {}
 
         return res.json({
             success: true,

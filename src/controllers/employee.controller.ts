@@ -12,6 +12,7 @@ import path from 'path';
 import { calculateProfileCompletion } from '../utils/profileCompletion';
 import { checkUserHasPermission } from '../middleware/auth';
 import { uploadToCloudinary, deleteFromCloudinary } from '../services/cloudinary.service';
+import { getIO } from '../socket/socketHandler';
 
 
 const prisma = new PrismaClient();
@@ -812,6 +813,13 @@ export const createEmployee = async (req: Request, res: Response) => {
             targetUserRole: "EMPLOYEE",
         });
 
+        try {
+            getIO().to(`tenant_${tenantId}`).emit('employee_roster_updated', {
+                action: 'CREATED',
+                tenantId
+            });
+        } catch {}
+
         res.status(201).json(fullEmployee);
     } catch (error: any) {
         console.error('Error creating employee:', error);
@@ -1298,6 +1306,14 @@ export const updateEmployee = async (req: Request, res: Response) => {
             include: employeeInclude,
         });
 
+        try {
+            getIO().to(`tenant_${tenantId}`).emit('employee_roster_updated', {
+                action: 'UPDATED',
+                userId,
+                tenantId
+            });
+        } catch {}
+
         return res.json(fullUpdatedEmployee || updatedProfile);
     } catch (error: any) {
         console.error("Update employee error:", error);
@@ -1513,6 +1529,13 @@ export const deleteEmployee = async (req: Request, res: Response) => {
             targetUserRole: employee.role?.name || "EMPLOYEE",
         });
 
+        try {
+            getIO().to(`tenant_${tenantId}`).emit('employee_roster_updated', {
+                action: 'DELETED',
+                tenantId
+            });
+        } catch {}
+
         res.json({ message: 'Employee and all associated records deleted successfully' });
     } catch (error) {
         console.error('Delete error:', error);
@@ -1579,6 +1602,13 @@ export const bulkDeleteEmployees = async (req: Request, res: Response) => {
         } catch (auditErr) {
             console.error('Audit log error on bulk delete:', auditErr);
         }
+
+        try {
+            getIO().to(`tenant_${tenantId}`).emit('employee_roster_updated', {
+                action: 'DELETED',
+                tenantId
+            });
+        } catch {}
 
         res.json({ message: `${userIds.length} employees deleted successfully`, count: userIds.length });
     } catch (error: any) {
