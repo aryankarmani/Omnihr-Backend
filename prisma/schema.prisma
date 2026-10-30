@@ -841,7 +841,7 @@ model AttendanceRegularization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([userId, date, status])
+  @@index([userId, date])
   @@index([tenantId])
   @@index([userId])
   @@index([status])

@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
 import { createNotification, notifyAdmins } from "../utils/notification";
 import { createAuditLog } from "../utils/auditLog";
+import { getIO } from "../socket/socketHandler";
 
 const prisma = new PrismaClient();
 
@@ -335,6 +336,13 @@ export const createTeam = async (req: AuthRequest, res: Response) => {
       targetUserRole: fullTeam?.manager?.role?.name || "Team",
     });
 
+    try {
+      getIO().to(`tenant_${tenantId}`).emit('employee_roster_updated', {
+        action: 'CREATED',
+        tenantId
+      });
+    } catch {}
+
     return res.status(201).json(formatTeam(fullTeam));
   } catch (error: any) {
     console.error("Create team error:", error);
@@ -445,6 +453,13 @@ export const updateTeam = async (req: AuthRequest, res: Response) => {
       targetUserRole: "Team",
     });
 
+    try {
+      getIO().to(`tenant_${tenantId}`).emit('employee_roster_updated', {
+        action: 'UPDATED',
+        tenantId
+      });
+    } catch {}
+
     return res.json(formatTeam(team));
   } catch (error: any) {
     console.error("Update team error:", error);
@@ -539,6 +554,13 @@ export const deleteTeam = async (req: AuthRequest, res: Response) => {
       targetUserRole: "Team",
     });
 
+
+    try {
+      getIO().to(`tenant_${tenantId}`).emit('employee_roster_updated', {
+        action: 'DELETED',
+        tenantId
+      });
+    } catch {}
 
     return res.json({ message: "Team deleted successfully" });
   } catch (error: any) {
@@ -710,6 +732,13 @@ export const addMembers = async (req: AuthRequest, res: Response) => {
       targetUserRole: "Team",
     });
 
+    try {
+      getIO().to(`tenant_${tenantId}`).emit('employee_roster_updated', {
+        action: 'UPDATED',
+        tenantId
+      });
+    } catch {}
+
     return res.json(formatTeam(updatedTeam));
   } catch (error: any) {
     console.error("Add members error:", error);
@@ -786,6 +815,13 @@ export const removeMember = async (req: AuthRequest, res: Response) => {
       targetUser: `User ${userId}`,
       targetUserRole: "EMPLOYEE",
     });
+
+    try {
+      getIO().to(`tenant_${tenantId}`).emit('employee_roster_updated', {
+        action: 'UPDATED',
+        tenantId
+      });
+    } catch {}
 
     return res.json({ message: "Member removed successfully" });
   } catch (error) {

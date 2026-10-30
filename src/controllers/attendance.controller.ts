@@ -5,6 +5,7 @@ import { getManagerTeamMemberIds, isAdminOrManager } from "../utils/teamScope";
 import { createAuditLog } from "../utils/auditLog";
 import { sendPushNotificationToUser } from "./pushNotification.controller";
 import { checkUserHasPermission } from "../middleware/auth";
+import { getIO } from '../socket/socketHandler';
 
 const prisma = new PrismaClient();
 
@@ -470,6 +471,14 @@ export const breakIn = async (req: AuthRequest, res: Response) => {
             },
         });
 
+        try {
+            getIO().to(`tenant_${tenantId}`).emit('attendance_updated', {
+                action: 'BREAK_START',
+                userId,
+                tenantId
+            });
+        } catch {}
+
         return res.json({
             message: "Break started successfully",
             break: newBreak,
@@ -559,6 +568,14 @@ export const breakOut = async (req: AuthRequest, res: Response) => {
             where: { id: record.id },
             data: { totalBreakMinutes },
         });
+
+        try {
+            getIO().to(`tenant_${tenantId}`).emit('attendance_updated', {
+                action: 'BREAK_END',
+                userId,
+                tenantId
+            });
+        } catch {}
 
         return res.json({
             message: "Break ended successfully",
@@ -696,6 +713,14 @@ export const punchToggle = async (req: AuthRequest, res: Response) => {
                 await sendPushNotificationToUser(userId, title, message);
             }
 
+            try {
+                getIO().to(`tenant_${tenantId}`).emit('attendance_updated', {
+                    action: 'PUNCH_IN',
+                    userId,
+                    tenantId
+                });
+            } catch {}
+
             return res.json({ message: 'Punched in successfully', record, shift });
         } if (record.inTime && !record.outTime) {
             // Guard: Cannot punch in if already punched in
@@ -755,6 +780,14 @@ export const punchToggle = async (req: AuthRequest, res: Response) => {
                     status
                 },
             });
+
+            try {
+                getIO().to(`tenant_${tenantId}`).emit('attendance_updated', {
+                    action: 'PUNCH_OUT',
+                    userId,
+                    tenantId
+                });
+            } catch {}
 
             return res.json({
                 message: "Punched out successfully",
@@ -1198,6 +1231,15 @@ export const applyRegularization = async (req: AuthRequest, res: Response) => {
             targetUserRole: "EMPLOYEE",
         });
 
+        try {
+            getIO().to(`tenant_${tenantId}`).emit('regularization_updated', {
+                action: 'REQUESTED',
+                id: request.id,
+                userId,
+                tenantId
+            });
+        } catch {}
+
         res.status(201).json({
             message: "Attendance correction request submitted successfully",
             request,
@@ -1372,8 +1414,8 @@ export const approveRegularization = async (req: AuthRequest, res: Response) => 
             }
 
             // Check if this is a break correction
-            const isBreakIn = request.correctionType === 'BREAK_IN' || request.reason.includes('Break In');
-            const isBreakOut = request.correctionType === 'BREAK_OUT' || request.reason.includes('Break Out');
+            const isBreakIn = request.correctionType === 'BREAK_IN' || request.reason?.includes('Break In');
+            const isBreakOut = request.correctionType === 'BREAK_OUT' || request.reason?.includes('Break Out');
 
             if (isBreakIn) {
                 const startTime = request.proposedBreakStart || request.proposedIn || new Date();
@@ -1488,6 +1530,20 @@ export const approveRegularization = async (req: AuthRequest, res: Response) => 
             targetUserRole: "EMPLOYEE",
         });
 
+        try {
+            getIO().to(`tenant_${tenantId}`).emit('regularization_updated', {
+                action: 'APPROVED',
+                id: request.id,
+                userId: request.userId,
+                tenantId
+            });
+            getIO().to(`tenant_${tenantId}`).emit('attendance_updated', {
+                action: 'REGULARIZED',
+                userId: request.userId,
+                tenantId
+            });
+        } catch {}
+
         res.json({
             message: "Attendance correction approved and attendance updated successfully",
             ...result,
@@ -1583,6 +1639,15 @@ export const rejectRegularization = async (req: AuthRequest, res: Response) => {
             targetUser: `User ${request.userId}`,
             targetUserRole: "EMPLOYEE",
         });
+
+        try {
+            getIO().to(`tenant_${tenantId}`).emit('regularization_updated', {
+                action: 'REJECTED',
+                id: request.id,
+                userId: request.userId,
+                tenantId
+            });
+        } catch {}
 
         res.json({
             message: "Attendance correction request rejected successfully",
@@ -1707,6 +1772,19 @@ export const forceRegularizeAttendance = async (req: AuthRequest, res: Response)
 
         // ✅ NEW: Push notification to employee
         await sendPushNotificationToUser(userId, title, message);
+
+        try {
+            getIO().to(`tenant_${tenantId}`).emit('regularization_updated', {
+                action: 'APPROVED',
+                userId,
+                tenantId
+            });
+            getIO().to(`tenant_${tenantId}`).emit('attendance_updated', {
+                action: 'REGULARIZED',
+                userId,
+                tenantId
+            });
+        } catch {}
 
         res.json({
             message: "Attendance directly corrected successfully",

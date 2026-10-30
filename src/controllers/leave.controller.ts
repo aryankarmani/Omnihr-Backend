@@ -5,6 +5,7 @@ import { getManagerTeamMemberIds } from "../utils/teamScope";
 import { sendPushNotificationToUser } from "./pushNotification.controller";
 import { createAuditLog } from "../utils/auditLog";
 import { checkUserHasPermission } from "../middleware/auth";
+import { getIO } from '../socket/socketHandler';
 
 const prisma = new PrismaClient();
 
@@ -383,6 +384,17 @@ export const applyLeave = async (req: Request, res: Response) => {
             targetUserRole: "EMPLOYEE",
         });
 
+        try {
+            getIO().to(`tenant_${tenantId}`).emit('leave_updated', {
+                action: 'APPLIED',
+                leaveId: newLeave.id,
+                userId: Number(userId),
+                tenantId
+            });
+        } catch (sockErr) {
+            // Socket emission non-blocking
+        }
+
         res.status(201).json(newLeave);
     } catch (error) {
         console.error('Error applying for leave:', error);
@@ -450,6 +462,17 @@ export const updateLeaveStatus = async (req: Request, res: Response) => {
             targetUser: updatedLeave.user.name,
             targetUserRole: "EMPLOYEE",
         });
+
+        try {
+            getIO().to(`tenant_${tenantId}`).emit('leave_updated', {
+                action: status,
+                leaveId: updatedLeave.id,
+                userId: updatedLeave.userId,
+                tenantId
+            });
+        } catch (sockErr) {
+            // Socket emission non-blocking
+        }
 
         res.json(updatedLeave);
     } catch (error) {

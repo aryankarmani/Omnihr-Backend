@@ -806,6 +806,17 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
                                 conversationId,
                                 message
                             });
+                            io.to(`user_${p.userId}`).emit('new_notification', {
+                                id: notifRecord?.id || `msg-${Date.now()}`,
+                                title: notifTitle,
+                                message: notifBody,
+                                type: 'chat',
+                                link,
+                                unread: true,
+                                createdAt: message.createdAt,
+                                date: 'Today',
+                                time: 'Just now',
+                            });
                             io.to(`user_${p.userId}`).emit('chat_notification', {
                                 id: notifRecord?.id || `msg-${Date.now()}`,
                                 type: 'chat',
@@ -847,6 +858,17 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
                                 }
                             }).catch(() => null);
 
+                            io.to(`user_${m.userId}`).emit('new_notification', {
+                                id: notifRecord?.id || `chan-${Date.now()}`,
+                                title: notifTitle,
+                                message: notifBody,
+                                type: 'chat',
+                                link,
+                                unread: true,
+                                createdAt: message.createdAt,
+                                date: 'Today',
+                                time: 'Just now',
+                            });
                             io.to(`user_${m.userId}`).emit('chat_notification', {
                                 id: notifRecord?.id || `chan-${Date.now()}`,
                                 type: 'channel',
