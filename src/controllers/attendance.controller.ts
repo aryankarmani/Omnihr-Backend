@@ -910,13 +910,17 @@ export const getAttendanceStats = async (req: AuthRequest, res: Response) => {
             })
         ]);
 
-        const rawJoiningDate = user?.employeeProfile?.joiningDate ? new Date(user.employeeProfile.joiningDate) : null;
+        const rawJoiningDate = (user?.employeeProfile as any)?.workingStartDate
+            ? new Date((user?.employeeProfile as any).workingStartDate)
+            : (user?.employeeProfile?.joiningDate ? new Date(user.employeeProfile.joiningDate) : null);
         const userCreatedAt = user?.createdAt ? new Date(user.createdAt) : null;
 
         // Effective tracking start date:
-        // If employee joined before being onboarded to the system, tracking starts from onboarding date
+        // Use working start date if specified, otherwise later of joining date and onboarding date
         let trackingStartDate: Date | null = null;
-        if (rawJoiningDate && userCreatedAt) {
+        if ((user?.employeeProfile as any)?.workingStartDate) {
+            trackingStartDate = new Date((user?.employeeProfile as any).workingStartDate);
+        } else if (rawJoiningDate && userCreatedAt) {
             trackingStartDate = rawJoiningDate < userCreatedAt ? userCreatedAt : rawJoiningDate;
         } else {
             trackingStartDate = rawJoiningDate || userCreatedAt;
@@ -1090,9 +1094,11 @@ export const applyRegularization = async (req: AuthRequest, res: Response) => {
 
         const allowedDays = policy?.regularizationDays ?? 3;
 
-        if (diffDays < 0) {
+        if (diffDays <= 0) {
             return res.status(400).json({
-                message: 'Cannot request correction for future date',
+                message: diffDays === 0
+                    ? 'Cannot apply for correction on the current day. You can only request correction for past days (within the last 3 days).'
+                    : 'Cannot request correction for future date',
             });
         }
 

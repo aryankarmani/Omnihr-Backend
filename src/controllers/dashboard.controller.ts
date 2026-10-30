@@ -383,7 +383,9 @@ export const getEmployeeOverview = async (req: Request, res: Response) => {
         };
         const formatted = employees.map(emp => {
             const empCreatedAt = emp.user?.createdAt ? new Date(emp.user.createdAt) : firstDayOfMonth;
-            const rawJoining = emp.joiningDate ? new Date(emp.joiningDate) : empCreatedAt;
+            const rawJoining = (emp as any).workingStartDate
+                ? new Date((emp as any).workingStartDate)
+                : (emp.joiningDate ? new Date(emp.joiningDate) : empCreatedAt);
             const empJoining = (rawJoining && empCreatedAt && rawJoining < empCreatedAt) ? empCreatedAt : rawJoining;
             let workingDays = 0;
 
@@ -420,9 +422,20 @@ export const getEmployeeOverview = async (req: Request, res: Response) => {
             const userLeave = leavesToday.find(l => l.userId === emp.user.id);
 
             let todayStatus = 'Absent';
-            let todayStatusType: 'PRESENT' | 'LATE' | 'HALF_DAY' | 'LEAVE' | 'ABSENT' | 'HOLIDAY' | 'WEEKEND' = 'ABSENT';
+            let todayStatusType: 'PRESENT' | 'LATE' | 'HALF_DAY' | 'LEAVE' | 'ABSENT' | 'HOLIDAY' | 'WEEKEND' | 'YET_TO_JOIN' = 'ABSENT';
 
-            if (todayRec?.inTime) {
+            const effectiveStart = (emp as any).workingStartDate
+                ? new Date((emp as any).workingStartDate)
+                : (emp.joiningDate ? new Date(emp.joiningDate) : empCreatedAt);
+            const startMidnight = new Date(effectiveStart);
+            startMidnight.setHours(0, 0, 0, 0);
+            const todayMidnight = new Date(today);
+            todayMidnight.setHours(0, 0, 0, 0);
+
+            if (startMidnight > todayMidnight) {
+                todayStatus = 'Yet to Join';
+                todayStatusType = 'YET_TO_JOIN';
+            } else if (todayRec?.inTime) {
                 // If employee came in and punched in (even on a holiday)
                 const s = (todayRec.status || '').toUpperCase();
                 const inDate = new Date(todayRec.inTime);

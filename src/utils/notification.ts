@@ -78,28 +78,34 @@ export const notifyAdmins = async ({
   });
   if (admins.length === 0) return;
 
-  await prisma.notification.createMany({
-    data: admins.map((admin) => ({
-      tenantId,
-      userId: admin.id,
-      title,
-      message,
-      type,
-      unread: true,
-      ...(link ? { link } : {}),
-    })) as any,
-  });
+  const createdNotifications = await Promise.all(
+    admins.map((admin) =>
+      prisma.notification.create({
+        data: {
+          tenantId,
+          userId: admin.id,
+          title,
+          message,
+          type,
+          unread: true,
+          ...(link ? { link } : {}),
+        } as any,
+      }).catch(() => null)
+    )
+  );
 
   try {
     const io = getIO();
-    admins.forEach((admin) => {
+    admins.forEach((admin, index) => {
+      const notifItem = createdNotifications[index];
       io.to(`user_${admin.id}`).emit('new_notification', {
+        id: notifItem?.id || `admin-notif-${Date.now()}-${admin.id}`,
         title,
         message,
         type,
         unread: true,
         link,
-        createdAt: new Date(),
+        createdAt: notifItem?.createdAt || new Date(),
         date: new Date().toISOString().split('T')[0],
         time: 'Just now',
       });
