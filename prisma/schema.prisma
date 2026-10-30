@@ -317,9 +317,10 @@ model EmployeeProfile {
   salaryComponents EmployeeSalaryComponent[]
 
   phone       String?
-  dob         DateTime?
-  joiningDate DateTime?
-  bloodGroup  String?
+  dob              DateTime?
+  joiningDate      DateTime?
+  workingStartDate DateTime?
+  bloodGroup       String?
   address     String?
   avatar      String? // URL or color code
   status      String    @default("Active") // Active, Inactive, OnNotice

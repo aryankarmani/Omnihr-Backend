@@ -432,7 +432,7 @@ export const createEmployee = async (req: Request, res: Response) => {
 
         const {
             name, email, password, phone, role, roleId,
-            department, location, title, departmentId, designationId, locationId, shiftId, joiningDate,
+            department, location, title, departmentId, designationId, locationId, shiftId, joiningDate, workingStartDate,
             dob,
             address,
             bloodGroup,
@@ -549,6 +549,7 @@ export const createEmployee = async (req: Request, res: Response) => {
                 locationId: locationId || null,
                 shiftId: shiftId || null,
                 joiningDate: joiningDate ? new Date(joiningDate) : new Date(),
+                workingStartDate: workingStartDate ? new Date(workingStartDate) : (joiningDate ? new Date(joiningDate) : new Date()),
                 status: 'Active',
                 dob: dob ? new Date(dob) : null,
                 address: address || null,
@@ -936,6 +937,7 @@ export const updateEmployee = async (req: Request, res: Response) => {
             phone,
             dob,
             joiningDate,
+            workingStartDate,
             bloodGroup,
             address,
             role,
@@ -1105,9 +1107,12 @@ export const updateEmployee = async (req: Request, res: Response) => {
                 status: status || "Active",
                 dob: dob ? new Date(dob) : null,
 
-                // ✅ ADDED: Update joining date when edited from frontend
+                // ✅ ADDED: Update joining date and working start date when edited from frontend
                 ...(joiningDate && {
                     joiningDate: new Date(joiningDate),
+                }),
+                ...(workingStartDate && {
+                    workingStartDate: new Date(workingStartDate),
                 }),
                 bloodGroup: bloodGroup || null,
                 address: address || null,
